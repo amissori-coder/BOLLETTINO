@@ -59,6 +59,22 @@ com'è. Tre strade:
    (*Actions → Recupera app da Firebase Hosting → Run workflow*), non usa
    segreti e non tocca il database.
 
+## Configurazione Firebase in questo repository
+
+`firebase.json` dichiara **solo** `hosting`. È deliberato: senza le sezioni
+`firestore` / `database` / `storage`, la CLI di Firebase non ha modo di
+deployare regole o toccare i dati, quindi nessun comando di deploy può
+danneggiare il database di produzione (di cui non esiste backup). Il deploy si
+fa con:
+
+```bash
+firebase deploy --only hosting
+```
+
+`"public": "dist"` è il default di Vite: va allineato alla cartella di output
+reale del build una volta ricostruita la toolchain (`build/` per Create React
+App, `dist/` per Vite).
+
 ## Dopo il recupero
 
 - ricavare la config Firebase dal bundle (`apiKey`, `projectId`, `authDomain`,
