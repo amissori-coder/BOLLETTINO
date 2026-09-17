@@ -41,16 +41,51 @@ Output:
 Dietro un proxy (es. una sessione Claude Code) serve Node >= 22.21 e
 `NODE_USE_ENV_PROXY=1` davanti al comando.
 
-## Come eseguirlo
+## Esito del recupero (completato)
 
-Il dominio `*.web.app` è **bloccato dalla policy di rete** dell'ambiente remoto
-di Claude Code, quindi il download non può partire da dentro la sessione così
-com'è. Tre strade:
+Il dominio `gestionale-collegio-lazio.web.app` era inizialmente negato dalla
+policy di rete dell'ambiente; una volta consentito, lo script ha scaricato
+l'intero sito in un passaggio:
 
-1. **Allargare la policy di rete dell'ambiente** (la via pulita): aggiungere
-   `gestionale-collegio-lazio.web.app` agli host consentiti nelle impostazioni
-   dell'ambiente, poi rieseguire lo script dalla sessione.
-   Vedi <https://code.claude.com/docs/en/claude-code-on-the-web>.
+| | |
+|---|---|
+| File scaricati | 2 — `index.html` (269 KB) e `logo-goi.png` (64 KB) |
+| Source map | nessuno, e non servivano |
+| Esito | **recupero integrale** |
+
+Non c'erano source map perché **non c'era nessun build**: l'app è un singolo
+file HTML scritto a mano, con CSS e JavaScript inline e le dipendenze da CDN.
+Il file servito era già il sorgente, non minificato, con i commenti originali
+in italiano. Verifiche eseguite sul file recuperato:
+
+- tag bilanciati e nessun errore di parsing HTML;
+- le 4.829 righe di JavaScript inline passano `node --check`.
+
+Il risultato è stato messo in `public/index.html` e `public/logo-goi.png`, che
+è anche la cartella di deploy dichiarata in `firebase.json`. La cartella
+`recovered/` prodotta dallo script non è versionata.
+
+### Ri-sincronizzare in futuro
+
+Se qualcuno pubblicasse una modifica senza passare da Git, si recupera il
+delta rieseguendo lo script e confrontando:
+
+```bash
+node tools/recover-from-hosting.mjs https://gestionale-collegio-lazio.web.app recovered
+diff -u public/index.html recovered/dist/index.html
+```
+
+## Se il download è bloccato dalla rete
+
+Il dominio deve essere consentito dalla policy di rete dell'ambiente
+(`connect_rejected — organization policy` significa che non lo è). Tre strade:
+
+1. **Allargare la policy di rete dell'ambiente** (la via usata): su
+   claude.ai/code, icona nuvola sopra la casella del messaggio → sezione
+   **Cloud** → ingranaggio sull'ambiente → **Network access: Custom** →
+   aggiungere `gestionale-collegio-lazio.web.app` in **Allowed domains**,
+   lasciando spuntato *Also include default list of common package managers*.
+   Vedi <https://code.claude.com/docs/en/cloud-environments#network-access>.
 2. **Eseguirlo in locale** su una macchina qualsiasi con Node, poi committare
    la cartella `recovered/`.
 3. **Eseguirlo su un runner GitHub**: il workflow
@@ -71,16 +106,14 @@ fa con:
 firebase deploy --only hosting
 ```
 
-`"public": "dist"` è il default di Vite: va allineato alla cartella di output
-reale del build una volta ricostruita la toolchain (`build/` per Create React
-App, `dist/` per Vite).
+`"public": "public"` è la cartella che contiene l'app. Non c'è build step: il
+file versionato è il file servito.
 
-## Dopo il recupero
+## Cosa usa l'app
 
-- ricavare la config Firebase dal bundle (`apiKey`, `projectId`, `authDomain`,
-  …) per capire quali servizi usa l'app: Firestore, Realtime Database, Auth,
-  Storage;
-- ricostruire `package.json` e la toolchain di build dai sorgenti recuperati;
-- aggiungere `firebase.json` e `.firebaserc` configurati **solo per
-  l'Hosting**, così un `firebase deploy --only hosting` non tocca in alcun modo
-  dati o regole del database.
+Dalla config trovata in `public/index.html`: progetto
+`gestionale-collegio-lazio`, **Firebase Auth** e **Firestore** via SDK
+*compat* 10.13.0. Nessun uso di Realtime Database. Lo `storageBucket` è
+dichiarato nella config ma non risultano chiamate a Firebase Storage.
+Collezioni Firestore: `pratiche`, `logge`, `users`, `datiFissi`, `logs`,
+`presence`, `_meta`.

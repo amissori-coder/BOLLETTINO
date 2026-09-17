@@ -1,11 +1,10 @@
 node_modules/
-dist/
-build/
 .firebase/
 *.log
 .env
 .env.local
 .env.*.local
 .DS_Store
-.vite/
-coverage/
+
+# materiale grezzo scaricato da Hosting: la copia buona sta in public/
+recovered/
