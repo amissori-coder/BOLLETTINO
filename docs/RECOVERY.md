@@ -67,13 +67,17 @@ Il risultato è stato messo in `public/index.html` e `public/logo-goi.png`, che
 
 ### Ri-sincronizzare in futuro
 
-Se qualcuno pubblicasse una modifica senza passare da Git, si recupera il
-delta rieseguendo lo script e confrontando:
+Se qualcuno pubblicasse una modifica senza passare da Git, il delta si
+recupera rieseguendo lo script e confrontando:
 
 ```bash
 node tools/recover-from-hosting.mjs https://gestionale-collegio-lazio.web.app recovered
 diff -u public/index.html recovered/dist/index.html
 ```
+
+Lo stesso confronto è disponibile come workflow manuale
+(*Actions → Confronta con il deploy su Hosting*), utile per accorgersi della
+divergenza senza avere l'ambiente sotto mano.
 
 ## Se il download è bloccato dalla rete
 
@@ -89,10 +93,12 @@ Il dominio deve essere consentito dalla policy di rete dell'ambiente
 2. **Eseguirlo in locale** su una macchina qualsiasi con Node, poi committare
    la cartella `recovered/`.
 3. **Eseguirlo su un runner GitHub**: il workflow
-   `.github/workflows/recover-hosting.yml` fa esattamente questo e committa il
-   risultato sul branch di lavoro. Parte solo a mano
-   (*Actions → Recupera app da Firebase Hosting → Run workflow*), non usa
-   segreti e non tocca il database.
+   `.github/workflows/recover-hosting.yml` scarica il sito da un runner (che
+   ha rete aperta) e lo confronta con `public/`. Parte solo a mano
+   (*Actions → Confronta con il deploy su Hosting → Run workflow*), non usa
+   segreti e non tocca il database. Se il deploy diverge dal codice
+   versionato, mostra il diff nel riepilogo e allega la copia deployata come
+   artifact scaricabile.
 
 ## Configurazione Firebase in questo repository
 

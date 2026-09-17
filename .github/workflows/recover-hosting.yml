@@ -1,60 +1,65 @@
-# Recupera i file deployati su Firebase Hosting usando un runner GitHub
-# (che ha rete aperta) e li committa nel repository.
+# Confronta l'app deployata su Firebase Hosting con quella versionata qui.
 #
-# Si avvia SOLO manualmente: Actions -> "Recupera app da Firebase Hosting" -> Run workflow.
-# Non legge nessun segreto e non tocca il database Firebase: scarica solo
-# file pubblici via HTTP.
-name: Recupera app da Firebase Hosting
+# Serve a intercettare le modifiche pubblicate fuori da Git: se qualcuno
+# deploya senza committare, questo workflow mostra il diff e rende scaricabile
+# la copia deployata, così la si può reintegrare nel repository.
+#
+# Si avvia solo manualmente: Actions -> "Confronta con il deploy su Hosting".
+# Non legge segreti e non tocca il database: solo GET su file pubblici.
+name: Confronta con il deploy su Hosting
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: "URL pubblico del sito (es. https://gestionale-collegio-lazio.web.app)"
+        description: "URL pubblico del sito"
         required: true
         default: "https://gestionale-collegio-lazio.web.app"
-      branch:
-        description: "Branch su cui committare il risultato"
-        required: true
-        default: "claude/nifty-meitner-wcnh4p"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  recover:
+  confronta:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout del branch di lavoro
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch }}
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Scarica il sito ed espandi i source map
+      - name: Scarica l'app deployata
         run: node tools/recover-from-hosting.mjs "${{ inputs.url }}" recovered
 
-      - name: Riepilogo di cosa è stato recuperato
+      - name: Confronta con public/
+        id: diff
         run: |
-          echo "### File deployati" >> "$GITHUB_STEP_SUMMARY"
-          find recovered/dist -type f | wc -l >> "$GITHUB_STEP_SUMMARY"
-          echo "### Sorgenti estratti dai source map" >> "$GITHUB_STEP_SUMMARY"
-          find recovered/src -type f 2>/dev/null | wc -l >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          find recovered -type f | head -200 >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Commit del materiale recuperato
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A recovered
-          if git diff --cached --quiet; then
-            echo "Niente di nuovo da committare."
-            exit 0
+          echo '## Differenze tra il deploy e `public/`' >> "$GITHUB_STEP_SUMMARY"
+          if diff -rq public recovered/dist > differenze.txt 2>&1; then
+            echo 'Nessuna differenza: il deploy corrisponde al codice versionato.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo 'Il deploy **non** corrisponde al codice versionato:'
+              echo '```'
+              cat differenze.txt
+              echo '```'
+              echo '### Diff di index.html'
+              echo '```diff'
+              diff -u public/index.html recovered/dist/index.html | head -500 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "divergente=true" >> "$GITHUB_OUTPUT"
           fi
-          git commit -m "chore: recupera i file deployati da Firebase Hosting"
-          git push origin HEAD:"${{ inputs.branch }}"
+
+      - name: Rendi scaricabile la copia deployata
+        if: steps.diff.outputs.divergente == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-deployata
+          path: recovered/dist
+
+      - name: Segnala la divergenza
+        if: steps.diff.outputs.divergente == 'true'
+        run: |
+          echo "::warning::Il deploy su Hosting diverge dal codice in public/. Vedi il riepilogo e l'artifact."
