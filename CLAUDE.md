@@ -4,8 +4,9 @@ Gestionale per le pratiche delle logge del Collegio del Lazio (Grande Oriente
 d'Italia): anagrafica pratiche, stato del flusso a semaforo, vista per loggia,
 log attività, generazione di report PDF ed export Excel.
 
-In produzione su Firebase Hosting: <https://gestionale-collegio-lazio.web.app/>
-(progetto Firebase: `gestionale-collegio-lazio`).
+In produzione su GitHub Pages: <https://amissori-coder.github.io/BOLLETTINO/>
+Di Firebase si usa **solo** il database (Firestore) e l'autenticazione,
+progetto `gestionale-collegio-lazio`.
 
 ## Architettura: una sola pagina, nessun build step
 
@@ -47,6 +48,33 @@ fissi report · genera report · generazione PDF · init del flusso di auth.
 ### Collezioni Firestore
 
 `pratiche` · `logge` · `users` · `datiFissi` · `logs` · `presence` · `_meta`
+
+## Hosting e deploy
+
+L'app è servita da **GitHub Pages**, non più da Firebase Hosting. Il deploy è
+automatico: ogni push su `main` che tocca `public/` avvia
+`.github/workflows/pages.yml` e pubblica. Non c'è nessun comando da lanciare,
+e non serve la CLI di Firebase.
+
+Perché funzioni, in *Settings → Pages* la voce **Source** deve essere su
+**GitHub Actions**: impostata su un branch, Pages pubblica la radice del
+repository e serve il README invece dell'app.
+
+Due proprietà dell'app che rendono possibile il sottopercorso `/BOLLETTINO/`
+di Pages, e che vanno preservate nelle modifiche future:
+
+- **tutti i percorsi sono relativi** (`logo-goi.png`, non `/logo-goi.png`).
+  Non introdurre percorsi assoluti: si romperebbero sotto il sottopercorso;
+- **non c'è routing basato sull'URL** (niente `location.pathname`,
+  `history.pushState`): la navigazione è tutta in memoria.
+
+Il login usa solo `signInWithEmailAndPassword`. La lista *Authorized domains*
+di Firebase Auth vincola solo i flussi popup/redirect OAuth, quindi il
+cambio di dominio non ha richiesto interventi sulla console. Se in futuro si
+aggiungesse un login Google o simile, il dominio di Pages va aggiunto lì.
+
+`firebase.json` resta nel repository come via di ritorno: `firebase deploy
+--only hosting` continua a funzionare se servisse ripubblicare su Firebase.
 
 ## Regola inderogabile: il database non si tocca
 

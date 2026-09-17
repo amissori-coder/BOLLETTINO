@@ -6,8 +6,11 @@ loggia, log delle attività, generazione di report PDF ed export Excel.
 
 | | |
 |---|---|
-| App in produzione | <https://gestionale-collegio-lazio.web.app/> |
-| Database | Firestore, progetto `gestionale-collegio-lazio` |
+| App | <https://amissori-coder.github.io/BOLLETTINO/> |
+| Database | Firestore, progetto Firebase `gestionale-collegio-lazio` |
+
+L'app è ospitata su GitHub Pages; di Firebase si usa **solo** il database
+(Firestore) e l'autenticazione.
 
 ## Com'è fatta
 
@@ -28,11 +31,16 @@ l'autenticazione Firebase non funziona.
 
 ## Pubblicarla
 
-Da una macchina con la CLI di Firebase installata:
+Automatico: ogni push su `main` che tocca `public/` avvia il workflow
+[`pages.yml`](.github/workflows/pages.yml), che pubblica su GitHub Pages.
+Non c'è nessun comando da lanciare a mano.
 
-```bash
-firebase deploy --only hosting
-```
+Perché funzioni, in **Settings → Pages** la voce *Source* deve essere
+impostata su **GitHub Actions**. Con l'impostazione su un branch, Pages
+pubblica la radice del repository e mostra il README invece dell'app.
+
+`firebase.json` è conservato come via di ritorno: se servisse ripubblicare su
+Firebase Hosting, `firebase deploy --only hosting` funziona ancora.
 
 ## Il database non si tocca
 
