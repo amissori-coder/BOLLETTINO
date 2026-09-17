@@ -1,0 +1,60 @@
+# Recupera i file deployati su Firebase Hosting usando un runner GitHub
+# (che ha rete aperta) e li committa nel repository.
+#
+# Si avvia SOLO manualmente: Actions -> "Recupera app da Firebase Hosting" -> Run workflow.
+# Non legge nessun segreto e non tocca il database Firebase: scarica solo
+# file pubblici via HTTP.
+name: Recupera app da Firebase Hosting
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL pubblico del sito (es. https://gestionale-collegio-lazio.web.app)"
+        required: true
+        default: "https://gestionale-collegio-lazio.web.app"
+      branch:
+        description: "Branch su cui committare il risultato"
+        required: true
+        default: "claude/nifty-meitner-wcnh4p"
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del branch di lavoro
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Scarica il sito ed espandi i source map
+        run: node tools/recover-from-hosting.mjs "${{ inputs.url }}" recovered
+
+      - name: Riepilogo di cosa è stato recuperato
+        run: |
+          echo "### File deployati" >> "$GITHUB_STEP_SUMMARY"
+          find recovered/dist -type f | wc -l >> "$GITHUB_STEP_SUMMARY"
+          echo "### Sorgenti estratti dai source map" >> "$GITHUB_STEP_SUMMARY"
+          find recovered/src -type f 2>/dev/null | wc -l >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          find recovered -type f | head -200 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit del materiale recuperato
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A recovered
+          if git diff --cached --quiet; then
+            echo "Niente di nuovo da committare."
+            exit 0
+          fi
+          git commit -m "chore: recupera i file deployati da Firebase Hosting"
+          git push origin HEAD:"${{ inputs.branch }}"
