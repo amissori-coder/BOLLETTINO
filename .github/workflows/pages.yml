@@ -1,19 +1,22 @@
 # Pubblica l'app su GitHub Pages a ogni push su main.
 #
-# Serve il contenuto di public/, la stessa cartella dichiarata in
-# firebase.json: una sola copia dell'app, nessuna duplicazione da mantenere
-# allineata a mano.
+# L'app sta nella radice del repository, che è anche ciò che Pages pubblica
+# quando è configurato in modalità "Deploy from a branch". Così il sito
+# funziona in entrambe le configurazioni: con Source su "GitHub Actions"
+# pubblica questo workflow, con Source su un branch pubblica Jekyll, e in
+# ogni caso viene servita la stessa index.html.
 #
-# Richiede che in Settings -> Pages la voce "Source" sia impostata su
-# "GitHub Actions" (non su un branch): con l'impostazione a branch, Pages
-# pubblica la radice del repository e serve il README invece dell'app.
+# Il file .nojekyll impedisce a Jekyll di rielaborare il contenuto e di
+# servire il README al posto dell'app.
 name: Pubblica su GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
-      - "public/**"
+      - "index.html"
+      - "logo-goi.png"
+      - ".nojekyll"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -39,10 +42,10 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      - name: Prepara l'artifact dalla cartella public/
+      - name: Prepara l'artifact dalla radice del repository
         uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: .
 
       - name: Deploy
         id: deploy

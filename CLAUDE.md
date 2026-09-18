@@ -10,7 +10,8 @@ progetto `gestionale-collegio-lazio`.
 
 ## Architettura: una sola pagina, nessun build step
 
-Tutta l'applicazione è **un unico file**, `public/index.html`: CSS in un blocco
+Tutta l'applicazione è **un unico file**, `index.html`, nella radice del
+repository: CSS in un blocco
 `<style>`, logica in un blocco `<script>` finale (~4.800 righe, 128 funzioni).
 Non esiste toolchain, non c'è `package.json`, non c'è niente da compilare: il
 file che sta nel repository è esattamente il file che viene servito.
@@ -29,13 +30,13 @@ Conseguenze pratiche da tenere a mente:
   l'SDK modulare v9+. Non mescolare le due sintassi.
 - Lo script non è un modulo ES: niente `import`/`export`, le funzioni stanno
   nello scope globale e l'HTML le richiama inline.
-- Per provare l'app in locale basta un server statico sulla cartella `public/`
-  (per esempio `python3 -m http.server -d public 8080`): serve l'origine HTTP
-  perché Firebase Auth non funziona da `file://`.
+- Per provare l'app in locale basta un server statico sulla radice del
+  repository (`python3 -m http.server 8080`): serve l'origine HTTP perché
+  Firebase Auth non funziona da `file://`.
 - Il logo va servito come `logo-goi.png` **accanto** a `index.html`: il codice
   lo carica al boot e lo converte in base64 per inserirlo nei PDF.
 
-### Indice delle sezioni di `public/index.html`
+### Indice delle sezioni di `index.html`
 
 Il codice è diviso da commenti a barra (`/* ===== */`). Nell'ordine:
 costanti e dati seed · icone SVG · utilità · inizializzazione Firebase e
@@ -51,14 +52,25 @@ fissi report · genera report · generazione PDF · init del flusso di auth.
 
 ## Hosting e deploy
 
-L'app è servita da **GitHub Pages**, non più da Firebase Hosting. Il deploy è
-automatico: ogni push su `main` che tocca `public/` avvia
-`.github/workflows/pages.yml` e pubblica. Non c'è nessun comando da lanciare,
-e non serve la CLI di Firebase.
+L'app è servita da **GitHub Pages**, non più da Firebase Hosting.
 
-Perché funzioni, in *Settings → Pages* la voce **Source** deve essere su
-**GitHub Actions**: impostata su un branch, Pages pubblica la radice del
-repository e serve il README invece dell'app.
+`index.html` sta nella **radice** del repository, ed è deliberato: è la stessa
+cartella che Pages pubblica quando è configurato in modalità *Deploy from a
+branch*. Così il sito funziona con entrambe le impostazioni di *Settings →
+Pages → Source*:
+
+- **GitHub Actions**: pubblica `.github/workflows/pages.yml`, che carica la
+  radice del repository;
+- **Deploy from a branch** (`main` / root): pubblica la build automatica di
+  Jekyll, che serve comunque la stessa `index.html`.
+
+Il file `.nojekyll` nella radice è ciò che rende vera la seconda riga: senza
+di esso Jekyll rielabora il contenuto e serve il README al posto dell'app.
+**Non rimuoverlo.**
+
+Il deploy è automatico: ogni push su `main` che tocca `index.html`,
+`logo-goi.png` o `.nojekyll` pubblica. Nessun comando da lanciare, nessuna
+CLI di Firebase.
 
 Due proprietà dell'app che rendono possibile il sottopercorso `/BOLLETTINO/`
 di Pages, e che vanno preservate nelle modifiche future:
@@ -88,8 +100,8 @@ Il Firestore in produzione contiene i dati reali e **non esiste un backup**.
 - Per deployare usare sempre: `firebase deploy --only hosting`.
 - Nessuno script di migrazione, seed, import o cancellazione sui dati di
   produzione senza una richiesta esplicita dell'utente. Attenzione: in
-  `public/index.html` esiste una sezione "COSTANTI E DATI SEED" — non
-  ricaricare quei seed su produzione.
+  `index.html` esiste una sezione "COSTANTI E DATI SEED" — non ricaricare
+  quei seed su produzione.
 
 ## Recupero del sorgente (fatto)
 
@@ -97,8 +109,7 @@ Il sorgente non era mai stato versionato e la copia locale era andata perduta:
 l'unica copia era quella deployata su Hosting. È stata recuperata con
 `tools/recover-from-hosting.mjs` (vedi `docs/RECOVERY.md`). Il codice non era
 minificato, quindi il recupero è integrale: commenti in italiano, nomi
-originali, formattazione. `public/index.html` è il file deployato, byte per
-byte.
+originali, formattazione. `index.html` è il file deployato, byte per byte.
 
 Lo script resta nel repository: è il modo di ri-sincronizzare dal deployato se
 in futuro qualcuno pubblicasse una modifica senza passare da Git.

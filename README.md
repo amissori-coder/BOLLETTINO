@@ -14,7 +14,7 @@ L'app è ospitata su GitHub Pages; di Firebase si usa **solo** il database
 
 ## Com'è fatta
 
-Un unico file: [`public/index.html`](public/index.html). CSS in un blocco
+Un unico file: [`index.html`](index.html), nella radice del repository. CSS in un blocco
 `<style>`, logica in un blocco `<script>` finale. **Nessun build step**: il
 file versionato è esattamente il file servito. Le dipendenze arrivano da CDN —
 Firebase SDK *compat* 10.13.0 (Auth + Firestore), jsPDF con autotable per i
@@ -23,7 +23,7 @@ PDF, SheetJS per l'export Excel.
 ## Provarla in locale
 
 ```bash
-python3 -m http.server -d public 8080
+python3 -m http.server 8080
 ```
 
 Poi apri <http://localhost:8080>. Serve un'origine HTTP: da `file://`
@@ -31,13 +31,14 @@ l'autenticazione Firebase non funziona.
 
 ## Pubblicarla
 
-Automatico: ogni push su `main` che tocca `public/` avvia il workflow
-[`pages.yml`](.github/workflows/pages.yml), che pubblica su GitHub Pages.
-Non c'è nessun comando da lanciare a mano.
+Automatico: ogni push su `main` che tocca `index.html`, `logo-goi.png` o
+`.nojekyll` pubblica su GitHub Pages. Non c'è nessun comando da lanciare.
 
-Perché funzioni, in **Settings → Pages** la voce *Source* deve essere
-impostata su **GitHub Actions**. Con l'impostazione su un branch, Pages
-pubblica la radice del repository e mostra il README invece dell'app.
+L'app sta nella radice del repository, quindi funziona con entrambe le
+impostazioni di *Settings → Pages → Source*: con **GitHub Actions** pubblica
+il workflow [`pages.yml`](.github/workflows/pages.yml), con **Deploy from a
+branch** pubblica la build automatica di GitHub. Il file `.nojekyll` impedisce
+a Jekyll di servire questo README al posto dell'app: non rimuoverlo.
 
 `firebase.json` è conservato come via di ritorno: se servisse ripubblicare su
 Firebase Hosting, `firebase deploy --only hosting` funziona ancora.

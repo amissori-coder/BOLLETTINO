@@ -61,8 +61,8 @@ in italiano. Verifiche eseguite sul file recuperato:
 - tag bilanciati e nessun errore di parsing HTML;
 - le 4.829 righe di JavaScript inline passano `node --check`.
 
-Il risultato è stato messo in `public/index.html` e `public/logo-goi.png`, che
-è anche la cartella di deploy dichiarata in `firebase.json`. La cartella
+Il risultato è stato messo in `index.html` e `logo-goi.png` nella radice del
+repository, che è anche ciò che GitHub Pages pubblica. La cartella
 `recovered/` prodotta dallo script non è versionata.
 
 ### Ri-sincronizzare in futuro
@@ -72,7 +72,7 @@ recupera rieseguendo lo script e confrontando:
 
 ```bash
 node tools/recover-from-hosting.mjs https://gestionale-collegio-lazio.web.app recovered
-diff -u public/index.html recovered/dist/index.html
+diff -u index.html recovered/dist/index.html
 ```
 
 Lo stesso confronto è disponibile come workflow manuale
@@ -94,7 +94,7 @@ Il dominio deve essere consentito dalla policy di rete dell'ambiente
    la cartella `recovered/`.
 3. **Eseguirlo su un runner GitHub**: il workflow
    `.github/workflows/recover-hosting.yml` scarica il sito da un runner (che
-   ha rete aperta) e lo confronta con `public/`. Parte solo a mano
+   ha rete aperta) e lo confronta con l'`index.html` versionata. Parte solo a mano
    (*Actions → Confronta con il deploy su Hosting → Run workflow*), non usa
    segreti e non tocca il database. Se il deploy diverge dal codice
    versionato, mostra il diff nel riepilogo e allega la copia deployata come
@@ -112,12 +112,13 @@ fa con:
 firebase deploy --only hosting
 ```
 
-`"public": "public"` è la cartella che contiene l'app. Non c'è build step: il
-file versionato è il file servito.
+`"public": "."` con la lista `ignore` che esclude documentazione e strumenti:
+l'app sta nella radice del repository e non c'è build step, quindi il file
+versionato è il file servito.
 
 ## Cosa usa l'app
 
-Dalla config trovata in `public/index.html`: progetto
+Dalla config trovata in `index.html`: progetto
 `gestionale-collegio-lazio`, **Firebase Auth** e **Firestore** via SDK
 *compat* 10.13.0. Nessun uso di Realtime Database. Lo `storageBucket` è
 dichiarato nella config ma non risultano chiamate a Firebase Storage.

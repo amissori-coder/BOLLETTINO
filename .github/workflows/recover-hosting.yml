@@ -32,11 +32,12 @@ jobs:
       - name: Scarica l'app deployata
         run: node tools/recover-from-hosting.mjs "${{ inputs.url }}" recovered
 
-      - name: Confronta con public/
+      - name: Confronta con l'app versionata
         id: diff
         run: |
-          echo '## Differenze tra il deploy e `public/`' >> "$GITHUB_STEP_SUMMARY"
-          if diff -rq public recovered/dist > differenze.txt 2>&1; then
+          echo '## Differenze tra il deploy su Hosting e il repository' >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p atteso && cp index.html logo-goi.png atteso/
+          if diff -rq atteso recovered/dist > differenze.txt 2>&1; then
             echo 'Nessuna differenza: il deploy corrisponde al codice versionato.' >> "$GITHUB_STEP_SUMMARY"
           else
             {
@@ -46,7 +47,7 @@ jobs:
               echo '```'
               echo '### Diff di index.html'
               echo '```diff'
-              diff -u public/index.html recovered/dist/index.html | head -500 || true
+              diff -u index.html recovered/dist/index.html | head -500 || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
             echo "divergente=true" >> "$GITHUB_OUTPUT"
@@ -62,4 +63,4 @@ jobs:
       - name: Segnala la divergenza
         if: steps.diff.outputs.divergente == 'true'
         run: |
-          echo "::warning::Il deploy su Hosting diverge dal codice in public/. Vedi il riepilogo e l'artifact."
+          echo "::warning::Il deploy su Hosting diverge dal codice versionato. Vedi il riepilogo e l'artifact."
