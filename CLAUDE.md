@@ -60,6 +60,67 @@ con il seed, così una sezione aggiunta in un aggiornamento compare in coda anch
 su un database già popolato. L'utente modifica tutto dalla tab
 *Dati Fissi Report → Ordine e Colori*.
 
+### Storico delle cariche
+
+Le cariche cambiano nel tempo e un bollettino di mesi passati deve ristampare i
+nomi in carica allora. Ogni versione di una sezione è un documento della stessa
+collection `datiFissi` con chiave **`storico:<sezione>:<AAAA-MM>`**, dove
+`AAAA-MM` è la *decorrenza*: quella versione vale da quel mese finché non ne
+comincia un'altra. È una funzione a gradini: nessun campo "valido fino a",
+quindi non esistono né buchi né sovrapposizioni. La decorrenza convenzionale
+`0000-01` (`DECORRENZA_INIZIALE`) è il dato che valeva prima della prima
+modifica registrata, fotografato automaticamente la prima volta che una sezione
+viene storicizzata. Storicizzate sono le nove sezioni elencate in
+`SEZIONI_STORICIZZATE`; `intestazione`, `firmeBollettino`, `sezioniReport` e
+`intestazioneColore` restano configurazione, non dati che cambiano di mese in
+mese.
+
+Regole da non violare toccando questa parte:
+
+- il documento **a chiave semplice** rispecchia la versione più recente, così
+  tutto ciò che legge `state.datiFissi[sezione]` continua a vedere il dato di
+  oggi; non è il dato iniziale e non va usato come tale;
+- `indicizzaDatiFissi()` è l'**unico** punto che divide chiavi correnti e chiavi
+  storiche, ed è chiamato sia da `loadAllData()` sia dal listener real-time: due
+  indicizzazioni separate possono divergere e far salvare sulla versione
+  sbagliata;
+- `salvaSezioneStorica()` è l'**unica** scrittura ammessa su queste sezioni.
+  Nessun `dbPut("datiFissi", { key: <sezione> })` sparso: una modifica di oggi
+  sovrascriverebbe il dato che serve a ristampare i mesi passati, e non c'è
+  backup da cui recuperarlo;
+- le modifiche nella pagina restano in `state.datiFissiBozza` e si scrivono solo
+  premendo *Salva modifiche…*, che chiede mese e anno di decorrenza. Il
+  salvataggio automatico a ogni tasto non può convivere con una decorrenza da
+  indicare;
+- "database vuoto" si decide con `datiFissiPresenti()`, che guarda le chiavi
+  note del seed. Contare le chiavi di `state.datiFissi` è sbagliato: lo storico
+  ne aggiunge di proprie e un conteggio sbagliato fa **riscrivere il seed sui
+  dati reali**. Per lo stesso motivo nessun percorso di sola navigazione deve
+  scrivere su Firestore: il seed si carica solo da un pulsante esplicito;
+- `salvaSezioneStorica()` **rifiuta** una decorrenza già registrata se non le si
+  passa `{ sostituisci: true }`. La scrittura su Firestore è un `set()` pieno:
+  senza quella guardia, scegliere per distrazione un mese che esiste già
+  cancella la versione che quei bollettini ristampano;
+- la sentinella `0000-01` non è un mese e **non deve mai finire in una tendina**:
+  l'anno 0 non compare fra le opzioni, il browser mostrerebbe il primo anno
+  dell'elenco e si salverebbe un mese diverso da quello letto a video. Per lo
+  stesso motivo `selectPeriodo()` aggiunge sempre alle opzioni l'anno del valore
+  che riceve;
+- la bozza ricorda **il mese su cui è nata** (`{ periodo, righe }`): il mese di
+  riferimento è unico per la pagina e salvare un'altra sezione potrebbe
+  spostarlo, facendo finire la bozza nel mese sbagliato.
+
+I periodi sono sempre stringhe `AAAA-MM` con il mese a due cifre, perché il
+confronto fra decorrenze è un confronto fra stringhe. I giorni del mese si
+contano con l'aritmetica (`giorniNelMese`), mai costruendo `Date`: vedi il
+commento su `isoDate` e il bug di fuso orario di `toISOString`.
+
+In *Genera Bollettino* il periodo è una coppia mese+anno "Dal"/"Al" (uguali per
+un bollettino di un mese solo) e vive in `state.reportPeriodo`, non nel DOM:
+i listener real-time ridisegnano la pagina a ogni salvataggio e azzererebbero le
+tendine. Le cariche stampate sono quelle in vigore nel mese **finale** del
+periodo, cioè quelle in carica quando il bollettino esce.
+
 Le pagine si ridisegnano riscrivendo l'intero `innerHTML`, e i listener
 real-time di Firestore fanno scattare un ridisegno a ogni salvataggio: per non
 far perdere il fuoco a chi sta scrivendo, `rerenderCurrent()` rimanda il

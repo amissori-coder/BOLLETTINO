@@ -297,6 +297,11 @@ td.actions { text-align: right; white-space: nowrap; }
 .section-tab { padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); font-size: 13px; font-weight: 500; transition: var(--transition); white-space: nowrap; }
 .section-tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .section-tab:hover { color: var(--text); }
+/* Gruppi di tab riquadrati: le impostazioni del bollettino stanno in un
+   riquadro, le tabelle delle cariche in un altro. */
+.tab-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 12px 0; margin-bottom: 14px; box-shadow: var(--shadow-xs); }
+.tab-group > .tab-group-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-soft); font-weight: 600; padding: 8px 4px 0; }
+.tab-group > .section-tabs { border-bottom: none; margin-bottom: 0; }
 
 .pdf-preview { width: 100%; height: 700px; border: 1px solid var(--border); border-radius: var(--radius); }
 
@@ -1307,6 +1312,97 @@ function isoDate(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/* ------------------------------------------------------------
+   PERIODI "AAAA-MM"
+   Bollettino e storico ragionano per mese, mai per giorno. Il mese è sempre a
+   due cifre: solo così il confronto fra stringhe "AAAA-MM" ordina davvero le
+   decorrenze. I giorni del mese si contano con l'aritmetica e non con Date,
+   per non ripetere il bug di fuso orario commentato in isoDate.
+   ------------------------------------------------------------ */
+
+const MESI_IT = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+  "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+const GIORNI_PER_MESE = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+// Accetta "2026-7" o "2026-07" e restituisce sempre "2026-07"; null se non è un periodo.
+function normalizzaPeriodo(v) {
+  const m = /^(\d{4})-(\d{1,2})$/.exec(String(v || "").trim());
+  if (!m) return null;
+  const mese = parseInt(m[2], 10);
+  if (mese < 1 || mese > 12) return null;
+  return m[1] + "-" + String(mese).padStart(2, "0");
+}
+
+function periodoCorrente() {
+  const oggi = new Date();
+  return oggi.getFullYear() + "-" + String(oggi.getMonth() + 1).padStart(2, "0");
+}
+
+function annoDelPeriodo(p) { return parseInt(String(p).slice(0, 4), 10); }
+function meseDelPeriodo(p) { return parseInt(String(p).slice(5, 7), 10); }
+
+function giorniNelMese(anno, mese) {
+  if (mese === 2) return ((anno % 4 === 0 && anno % 100 !== 0) || anno % 400 === 0) ? 29 : 28;
+  return GIORNI_PER_MESE[mese - 1];
+}
+
+function primoGiornoDelPeriodo(p) { return normalizzaPeriodo(p) + "-01"; }
+
+function ultimoGiornoDelPeriodo(p) {
+  const n = normalizzaPeriodo(p);
+  if (!n) return "";
+  return n + "-" + String(giorniNelMese(annoDelPeriodo(n), meseDelPeriodo(n))).padStart(2, "0");
+}
+
+// "2026-07" -> "Luglio 2026". La decorrenza convenzionale più antica non ha un
+// mese vero: è il dato che valeva prima di ogni modifica registrata.
+function etichettaPeriodo(p) {
+  if (p === DECORRENZA_INIZIALE) return "dato iniziale";
+  const n = normalizzaPeriodo(p);
+  if (!n) return "";
+  const nome = MESI_IT[meseDelPeriodo(n) - 1];
+  return nome.charAt(0).toUpperCase() + nome.slice(1) + " " + annoDelPeriodo(n);
+}
+
+// "Luglio 2026" se il mese è uno solo, "Luglio - Agosto 2026" nello stesso anno,
+// "Dicembre 2026 - Gennaio 2027" a cavallo d'anno.
+function etichettaIntervalloPeriodi(dal, al) {
+  if (!dal || !al || dal === al) return etichettaPeriodo(dal || al);
+  const a1 = annoDelPeriodo(dal), a2 = annoDelPeriodo(al);
+  const n1 = MESI_IT[meseDelPeriodo(dal) - 1], n2 = MESI_IT[meseDelPeriodo(al) - 1];
+  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+  if (a1 === a2) return cap(n1) + " - " + cap(n2) + " " + a1;
+  return cap(n1) + " " + a1 + " - " + cap(n2) + " " + a2;
+}
+
+// Anni offerti dalle tendine: quelli coperti dalle pratiche presenti, allargati
+// all'anno corrente, con un anno di margine da entrambe le parti.
+function anniSelezionabili() {
+  const anni = state.pratiche.map(p => parseInt(String(p.dataDocumento || "").slice(0, 4), 10)).filter(a => a >= 1900 && a <= 2200);
+  const oggi = new Date().getFullYear();
+  const min = Math.min(oggi, anni.length ? Math.min.apply(null, anni) : oggi) - 1;
+  const max = Math.max(oggi, anni.length ? Math.max.apply(null, anni) : oggi) + 1;
+  const out = [];
+  for (let a = max; a >= min; a--) out.push(a);
+  return out;
+}
+
+// Coppia di tendine mese + anno. onchange riceve il periodo "AAAA-MM" completo.
+// L'anno del valore passato viene sempre incluso fra le opzioni: se mancasse, il
+// browser mostrerebbe il primo anno dell'elenco mentre lo stato ne contiene un
+// altro, e si salverebbe un mese diverso da quello letto a video.
+function selectPeriodo(idBase, valore, onchange) {
+  const p = normalizzaPeriodo(valore) || periodoCorrente();
+  const mese = meseDelPeriodo(p), anno = annoDelPeriodo(p);
+  const anni = anniSelezionabili();
+  if (!anni.includes(anno)) { anni.push(anno); anni.sort((a, b) => b - a); }
+  const opzMesi = MESI_IT.map((n, i) => `<option value="${i + 1}" ${mese === i + 1 ? "selected" : ""}>${n.charAt(0).toUpperCase() + n.slice(1)}</option>`).join("");
+  const opzAnni = anni.map(a => `<option value="${a}" ${anno === a ? "selected" : ""}>${a}</option>`).join("");
+  return `
+    <select id="${idBase}Mese" onchange="${onchange}(document.getElementById('${idBase}Anno').value + '-' + this.value)" style="min-width:120px">${opzMesi}</select>
+    <select id="${idBase}Anno" onchange="${onchange}(this.value + '-' + document.getElementById('${idBase}Mese').value)" style="min-width:90px">${opzAnni}</select>`;
+}
+
 function escapeHtml(s) {
   if (s === null || s === undefined) return "";
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1475,7 +1571,15 @@ function entityLabel(store, entity) {
     return `N. ${entity.numero} - ${entity.nome || "?"} (Or. ${entity.oriente || "?"})`;
   }
   if (store === "datiFissi") {
-    return `Sezione: ${entity.key || "?"}`;
+    const key = String(entity.key || "?");
+    if (key.startsWith(PREFISSO_STORICO)) {
+      const resto = key.slice(PREFISSO_STORICO.length);
+      const taglio = resto.lastIndexOf(":");
+      if (taglio > 0) {
+        return `Sezione: ${getTitoloSezione(resto.slice(0, taglio))} (in vigore da ${etichettaPeriodo(resto.slice(taglio + 1))})`;
+      }
+    }
+    return `Sezione: ${key}`;
   }
   if (store === "users") {
     return entity.email || entity.id || "?";
@@ -2076,6 +2180,10 @@ const state = {
   logge: [],
   pratiche: [],
   datiFissi: {},
+  storicoDatiFissi: {},      // { sezione: [{da: "AAAA-MM", valore}, ...] } ordinato per decorrenza
+  datiFissiPeriodo: "",      // mese di lavoro nella pagina Dati Fissi ("AAAA-MM")
+  datiFissiBozza: {},        // modifiche non ancora salvate, per sezione
+  reportPeriodo: null,       // { dal: "AAAA-MM", al: "AAAA-MM" } del bollettino da generare
   databasePage: 1,
   filters: {
     dateFrom: "",
@@ -2123,8 +2231,124 @@ async function loadAllData() {
   ]);
   state.logge = logge.sort((a, b) => a.numero - b.numero);
   state.pratiche = pratiche;
+  indicizzaDatiFissi(datiFissiArr);
+}
+
+/* ------------------------------------------------------------
+   STORICO DEI DATI FISSI
+   Le cariche cambiano nel tempo e un bollettino di mesi passati deve
+   ristampare i nomi in carica allora. Ogni versione di una sezione è un
+   documento della collection "datiFissi" con chiave "storico:<sezione>:<AAAA-MM>",
+   dove AAAA-MM è la DECORRENZA: quella versione vale da quel mese fino a quando
+   non ne comincia un'altra (una funzione a gradini, senza intervalli né buchi).
+   Il documento a chiave semplice resta il rispecchiamento della versione più
+   recente, così tutto ciò che leggeva state.datiFissi[sezione] continua a
+   funzionare e i controlli di "database vuoto" restano validi.
+   ------------------------------------------------------------ */
+
+// Decorrenza convenzionale della versione più antica: "da sempre", cioè il dato
+// che valeva prima che qualcuno registrasse la prima decorrenza vera.
+const DECORRENZA_INIZIALE = "0000-01";
+const PREFISSO_STORICO = "storico:";
+
+// Sezioni con storico. Restano fuori le chiavi di configurazione
+// (sezioniReport, intestazioneColore, intestazione, firmeBollettino): sono
+// impaginazione, non dati che cambiano di mese in mese.
+const SEZIONI_STORICIZZATE = ["maestriVenerabili", "ispettoriCircoscrizionali",
+  "tribunaleCircoscrizionale", "granDignitario", "grandiUfficiali", "corteCentrale",
+  "collegioRevisori", "garantiAmicizia", "consiglioOrdine"];
+
+// "Database vuoto" non si può decidere contando le chiavi: lo storico ne
+// aggiunge di proprie e un conteggio > 0 con le sezioni mancanti (o viceversa)
+// farebbe riscrivere il seed sui dati reali. Si guardano le chiavi note.
+function datiFissiPresenti() {
+  return Object.keys(SEED_DATI_FISSI).some(k => state.datiFissi[k] !== undefined);
+}
+
+function chiaveStorico(sezione, decorrenza) { return PREFISSO_STORICO + sezione + ":" + decorrenza; }
+
+// Divide i documenti di "datiFissi" fra valori correnti e versioni storiche.
+// Un solo punto: loadAllData e il listener real-time chiamano entrambi questa,
+// altrimenti i due indici possono divergere e si salva sulla versione sbagliata.
+function indicizzaDatiFissi(documenti) {
   state.datiFissi = {};
-  datiFissiArr.forEach(d => { state.datiFissi[d.key] = d.value; });
+  state.storicoDatiFissi = {};
+  documenti.forEach(d => {
+    const key = String(d.key || "");
+    if (key.startsWith(PREFISSO_STORICO)) {
+      const resto = key.slice(PREFISSO_STORICO.length);
+      const taglio = resto.lastIndexOf(":");
+      if (taglio <= 0) return;
+      const sezione = resto.slice(0, taglio);
+      const da = resto.slice(taglio + 1);
+      if (!state.storicoDatiFissi[sezione]) state.storicoDatiFissi[sezione] = [];
+      state.storicoDatiFissi[sezione].push({ da: da, valore: d.value });
+    } else {
+      state.datiFissi[key] = d.value;
+    }
+  });
+  // Ordine crescente per decorrenza: il confronto fra stringhe "AAAA-MM" è
+  // corretto solo con il mese sempre a due cifre (vedi normalizzaPeriodo).
+  Object.keys(state.storicoDatiFissi).forEach(sez => {
+    state.storicoDatiFissi[sez].sort((a, b) => a.da < b.da ? -1 : a.da > b.da ? 1 : 0);
+  });
+}
+
+// Elenco delle versioni di una sezione, dalla più antica alla più recente.
+function versioniSezione(sezione) { return state.storicoDatiFissi[sezione] || []; }
+
+// Decorrenza della versione più recente, oppure null se la sezione non è mai
+// stata storicizzata.
+function decorrenzaCorrente(sezione) {
+  const v = versioniSezione(sezione);
+  return v.length ? v[v.length - 1].da : null;
+}
+
+// Il valore "di oggi" di una sezione: la versione più recente se esiste,
+// altrimenti il documento a chiave semplice e infine il seed.
+function valoreCorrenteSezione(sezione) {
+  const v = versioniSezione(sezione);
+  if (v.length) return v[v.length - 1].valore;
+  return state.datiFissi[sezione] || SEED_DATI_FISSI[sezione] || [];
+}
+
+// Il valore di una sezione in vigore in un dato mese ("AAAA-MM"): l'ultima
+// versione con decorrenza <= periodo. Se il periodo precede anche la versione
+// più antica registrata si usa quella, che è il dato di partenza.
+function datiSezionePerPeriodo(sezione, periodo) {
+  const v = versioniSezione(sezione);
+  if (!v.length) return state.datiFissi[sezione] || SEED_DATI_FISSI[sezione] || [];
+  const p = normalizzaPeriodo(periodo) || periodoCorrente();
+  for (let i = v.length - 1; i >= 0; i--) if (v[i].da <= p) return v[i].valore;
+  return v[0].valore;
+}
+
+// Scrittura UNICA delle sezioni storicizzate: nessun altro punto del codice
+// deve fare dbPut su queste chiavi, altrimenti una modifica di oggi
+// sovrascriverebbe il dato che serve a ristampare i mesi passati.
+async function salvaSezioneStorica(sezione, decorrenza, valore, opts = {}) {
+  const da = normalizzaPeriodo(decorrenza);
+  if (!da) throw new Error("Decorrenza non valida: " + decorrenza);
+  // Scrivere su una decorrenza già registrata sostituisce quella versione: su un
+  // database senza backup non deve poter succedere per sbaglio.
+  if (!opts.sostituisci && versioniSezione(sezione).some(v => v.da === da)) {
+    throw new Error("Esiste già una versione in vigore da " + etichettaPeriodo(da));
+  }
+  // La prima volta si fotografa il dato attuale come versione "da sempre",
+  // così i mesi anteriori alla prima decorrenza restano stampabili.
+  if (versioniSezione(sezione).length === 0 && da !== DECORRENZA_INIZIALE) {
+    await dbPut("datiFissi", { key: chiaveStorico(sezione, DECORRENZA_INIZIALE), value: valoreCorrenteSezione(sezione) });
+  }
+  await dbPut("datiFissi", { key: chiaveStorico(sezione, da), value: valore });
+  // Il documento a chiave semplice rispecchia la versione più recente.
+  const corrente = decorrenzaCorrente(sezione);
+  if (!corrente || da >= corrente) await dbPut("datiFissi", { key: sezione, value: valore });
+}
+
+async function cancellaVersioneSezione(sezione, decorrenza) {
+  await dbDelete("datiFissi", chiaveStorico(sezione, decorrenza));
+  const rimaste = versioniSezione(sezione).filter(v => v.da !== decorrenza);
+  if (rimaste.length) await dbPut("datiFissi", { key: sezione, value: rimaste[rimaste.length - 1].valore });
 }
 
 async function navigate(page) {
@@ -4128,7 +4352,7 @@ function generaSollecitoLoggia(numLoggia) {
   if (sospese.length === 0) { toast("Nessuna pratica in sospeso per questa loggia", "warning"); return; }
 
   // Trova il Maestro Venerabile dai dati fissi
-  const maestriVen = state.datiFissi.maestriVenerabili || SEED_DATI_FISSI.maestriVenerabili || [];
+  const maestriVen = datiSezionePerPeriodo("maestriVenerabili", periodoCorrente());
   const mv = maestriVen.find(m => m.numero === numLoggia);
   const nomeMV = mv ? mv.maestro : "";
 
@@ -4460,9 +4684,16 @@ async function cancellaLoggia(numero) {
    ============================================================ */
 
 PAGES["dati-fissi"] = function() {
-  // Inizializza con seed se vuoto
-  if (Object.keys(state.datiFissi).length === 0) {
-    importaSeedDatiFissi(false);
+  // Nessuna scrittura automatica: su un Firestore senza backup la sola
+  // navigazione non deve poter sovrascrivere i dati reali con il seed.
+  if (!datiFissiPresenti()) {
+    document.getElementById("page").innerHTML = `
+      <div class="page-header"><h2>Dati Fissi Report</h2></div>
+      <div class="card empty-state">
+        <h4>Nessun dato fisso nel database</h4>
+        <div class="text-muted mb-2">Le tabelle delle cariche non sono ancora state caricate su Firestore.</div>
+        <button class="btn btn-primary" onclick="importaSeedDatiFissi()">${icon("refresh", 15)} Carica i dati predefiniti</button>
+      </div>`;
     return;
   }
 
@@ -4471,18 +4702,26 @@ PAGES["dati-fissi"] = function() {
     <div class="page-header">
       <h2>Dati Fissi Report</h2>
       <div class="actions">
-        <button class="btn btn-secondary" onclick="allineaCaricheAlBollettino()" title="Riporta le tabelle delle cariche ai valori dell'ultimo bollettino, senza toccare firme, ordine e colori">${icon("refresh", 15)} Allinea cariche al bollettino</button>
-        <button class="btn btn-secondary" onclick="importaSeedDatiFissi(true)">${icon("refresh", 15)} Reimporta dati seed</button>
+        <button class="btn btn-secondary" onclick="importaSeedDatiFissi()">${icon("refresh", 15)} Reimporta dati seed</button>
       </div>
     </div>
 
-    <div class="section-tabs">
-      <div class="section-tab ${sezioneAttiva==='firme'?'active':''}" onclick="cambiaTabDatiFissi('firme')">Firme Bollettino</div>
-      <div class="section-tab ${sezioneAttiva==='intestazione'?'active':''}" onclick="cambiaTabDatiFissi('intestazione')">Intestazione</div>
-      <div class="section-tab ${sezioneAttiva==='sezioni'?'active':''}" onclick="cambiaTabDatiFissi('sezioni')">Ordine e Colori</div>
-      ${getSezioniReport().map(s => `
-        <div class="section-tab ${sezioneAttiva===s.key?'active':''}" onclick="cambiaTabDatiFissi('${s.key}')" title="${escapeHtml(s.titolo)}">${escapeHtml(getTitoloSezione(s.key))}</div>
-      `).join('')}
+    <div class="tab-group">
+      <div class="tab-group-title">Impostazioni del bollettino</div>
+      <div class="section-tabs">
+        <div class="section-tab ${sezioneAttiva==='firme'?'active':''}" onclick="cambiaTabDatiFissi('firme')">Firme Bollettino</div>
+        <div class="section-tab ${sezioneAttiva==='intestazione'?'active':''}" onclick="cambiaTabDatiFissi('intestazione')">Intestazione</div>
+        <div class="section-tab ${sezioneAttiva==='sezioni'?'active':''}" onclick="cambiaTabDatiFissi('sezioni')">Ordine e Colori</div>
+      </div>
+    </div>
+
+    <div class="tab-group">
+      <div class="tab-group-title">Cariche del Collegio</div>
+      <div class="section-tabs">
+        ${getSezioniReport().map(s => `
+          <div class="section-tab ${sezioneAttiva===s.key?'active':''}" onclick="cambiaTabDatiFissi('${s.key}')" title="${escapeHtml(s.titolo)}">${escapeHtml(getTitoloSezione(s.key))}</div>
+        `).join('')}
+      </div>
     </div>
 
     <div id="datiFissiContent"></div>
@@ -4498,10 +4737,14 @@ function cambiaTabDatiFissi(tab) {
 
 function renderTabDatiFissi(tab) {
   const cont = document.getElementById("datiFissiContent");
+  // Un salvataggio che finisce dopo che si è cambiata pagina non deve esplodere.
+  if (!cont) return;
   const data = state.datiFissi[tab];
 
   if (tab === "firme") {
-    const firme = data || SEED_DATI_FISSI.firmeBollettino;
+    // La chiave su Firestore è "firmeBollettino": leggendo state.datiFissi["firme"]
+    // si mostrava sempre il seed e le firme salvate non comparivano mai.
+    const firme = state.datiFissi.firmeBollettino || SEED_DATI_FISSI.firmeBollettino;
     cont.innerHTML = `
       <div class="card">
         <h3>Firme in calce al bollettino</h3>
@@ -4552,9 +4795,14 @@ function renderTabDatiFissi(tab) {
   } else if (tab === "sezioni") {
     renderTabSezioniReport(cont);
   } else {
-    // Sezioni con liste di righe
-    const lista = data || SEED_DATI_FISSI[tab] || [];
+    // Sezioni con liste di righe, storicizzate per decorrenza
+    const periodo = periodoLavoroDatiFissi();
+    const bozza = state.datiFissiBozza[tab];
+    const inBozza = bozza !== undefined;
+    const lista = datiVisualizzatiDatiFissi(tab);
     const colonne = getColonneSchema(tab);
+    const versioni = versioniSezione(tab);
+    const versioneMostrata = versioneInVigore(tab, periodo);
 
     // Inizializza filtri per il tab corrente
     if (!state.datiFissiColFilters[tab]) {
@@ -4572,11 +4820,51 @@ function renderTabDatiFissi(tab) {
       return true;
     });
 
+    const descrizioneVersione = !versioni.length
+      ? 'Nessuno storico: vale lo stesso dato per tutti i mesi.'
+      : versioneMostrata
+        ? (versioneMostrata.da === DECORRENZA_INIZIALE
+            ? 'Stai vedendo il <strong>dato iniziale</strong>, quello valido prima della prima decorrenza registrata.'
+            : `Stai vedendo la versione <strong>in vigore da ${escapeHtml(etichettaPeriodo(versioneMostrata.da))}</strong>.`)
+        : 'Nessuna versione copre questo mese.';
+
     cont.innerHTML = `
       <div class="card">
-        <div class="flex-between mb-2">
+        <div class="flex-between mb-2" style="flex-wrap:wrap;gap:12px;">
+          <div class="flex gap-2" style="align-items:center;flex-wrap:wrap;">
+            <label style="font-size:12px;font-weight:600;margin:0">Mese di riferimento</label>
+            ${periodo === DECORRENZA_INIZIALE
+              ? `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+                   Dato iniziale <span class="text-muted">(prima di ogni decorrenza)</span>
+                   <button class="btn btn-ghost btn-sm" onclick="cambiaPeriodoDatiFissi('${periodoCorrente()}')">Torna al mese corrente</button>
+                 </span>`
+              : selectPeriodo('dfPeriodo', periodo, 'cambiaPeriodoDatiFissi')}
+          </div>
+          <div class="text-muted" style="font-size:12px">${descrizioneVersione}</div>
+        </div>
+        ${versioni.length ? `
+          <div class="flex gap-2" style="flex-wrap:wrap;align-items:center;">
+            <span class="text-muted" style="font-size:12px">Decorrenze registrate:</span>
+            ${versioni.map(v => `
+              <span class="badge" style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:12px;font-size:11px;${versioneMostrata && versioneMostrata.da === v.da ? 'background:var(--accent-soft);border-color:var(--accent-light);' : ''}">
+                <a href="javascript:void(0)" onclick="cambiaPeriodoDatiFissi('${v.da === DECORRENZA_INIZIALE ? DECORRENZA_INIZIALE : v.da}')" style="text-decoration:none;color:inherit">${escapeHtml(etichettaPeriodo(v.da))}</a>
+                ${v.da === DECORRENZA_INIZIALE ? '' : `<button class="btn btn-ghost btn-sm" style="padding:0 2px;color:var(--danger)" title="Cancella questa decorrenza" onclick="cancellaDecorrenzaDatiFissi('${tab}','${v.da}')">✕</button>`}
+              </span>`).join('')}
+          </div>` : ''}
+      </div>
+
+      <div class="card">
+        <div class="flex-between mb-2" style="flex-wrap:wrap;gap:8px;">
           <h3 style="margin:0">${getTitoloSezione(tab)} <small class="text-muted" style="font-weight:400">(${listaFiltrata.length}${listaFiltrata.length !== lista.length ? '/' + lista.length : ''} voci)</small></h3>
-          <button class="btn btn-primary btn-sm" onclick="aggiungiRigaDatiFissi('${tab}')">+ Aggiungi riga</button>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="aggiungiRigaDatiFissi('${tab}')">+ Aggiungi riga</button>
+            <button class="btn btn-secondary btn-sm" id="dfAnnulla_${tab}" onclick="annullaBozzaDatiFissi('${tab}')" ${inBozza ? '' : 'disabled'}>Annulla modifiche</button>
+            <button class="btn btn-primary btn-sm" id="dfSalva_${tab}" onclick="chiediDecorrenzaDatiFissi('${tab}')" ${inBozza ? '' : 'disabled'}>Salva modifiche…</button>
+          </div>
+        </div>
+        <div id="dfAvvisoBozza_${tab}" class="mt-2 mb-2" style="${inBozza ? '' : 'display:none;'}background:var(--warning-soft);color:var(--warning);padding:8px 12px;border-radius:6px;font-size:12px;">
+          Modifiche non salvate${inBozza && bozza.periodo !== periodo ? `, fatte guardando <strong>${escapeHtml(etichettaPeriodo(bozza.periodo))}</strong>` : ''}.
+          Premi <strong>Salva modifiche…</strong> e indica da quale mese valgono.
         </div>
         <div class="table-wrap excel-style">
           <table class="excel-table">
@@ -4591,7 +4879,7 @@ function renderTabDatiFissi(tab) {
               ${listaFiltrata.length === 0 ? `<tr class="empty"><td colspan="${colonne.length+1}" class="empty-state text-muted" style="padding:20px">${lista.length === 0 ? 'Nessuna voce.' : 'Nessuna voce trovata con questi filtri.'}</td></tr>` :
                 listaFiltrata.map(({row, originalIndex}) => `
                   <tr>
-                    ${colonne.map(c => `<td style="padding:0;"><input type="text" id="cellaDF_${tab}_${originalIndex}_${c.key}" value="${escapeHtml(row[c.key] || '')}" oninput="aggiornaCellaDatiFissi('${tab}', ${originalIndex}, '${c.key}', this.value)" onkeydown="navigaCellaDatiFissi(event, this)" style="border:none;background:transparent;width:100%;padding:8px 12px;font-size:12px;"></td>`).join('')}
+                    ${colonne.map(c => `<td style="padding:0;"><input type="text" id="cellaDF_${tab}_${periodo}_${originalIndex}_${c.key}" value="${escapeHtml(row[c.key] || '')}" oninput="aggiornaCellaDatiFissi('${tab}', ${originalIndex}, '${c.key}', this.value)" onkeydown="navigaCellaDatiFissi(event, this)" style="border:none;background:transparent;width:100%;padding:8px 12px;font-size:12px;"></td>`).join('')}
                     <td class="actions"><button class="btn btn-ghost btn-sm" onclick="cancellaRigaDatiFissi('${tab}', ${originalIndex})" title="Cancella" style="color:var(--danger)">${icon('trash', 13)}</button></td>
                   </tr>
                 `).join('')
@@ -4599,9 +4887,162 @@ function renderTabDatiFissi(tab) {
             </tbody>
           </table>
         </div>
-        <div class="mt-2 text-muted" style="font-size:12px">Le modifiche vengono salvate automaticamente.</div>
       </div>
     `;
+  }
+}
+
+/* ------------------------------------------------------------
+   Modifica delle sezioni storicizzate.
+   Le modifiche restano in una bozza locale finché non si preme "Salva
+   modifiche…": è quel momento che fa la domanda sulla decorrenza. Senza un
+   momento di salvataggio esplicito, un tasto premuto per sbaglio creerebbe
+   una versione permanente, e il salvataggio ritardato scriverebbe nel mese
+   sbagliato se nel frattempo si cambia il mese di riferimento.
+   ------------------------------------------------------------ */
+
+// Mese su cui si sta lavorando nella pagina Dati Fissi.
+function periodoLavoroDatiFissi() {
+  if (!state.datiFissiPeriodo) state.datiFissiPeriodo = periodoCorrente();
+  return state.datiFissiPeriodo;
+}
+
+// La versione effettivamente in vigore in un mese, con la sua decorrenza.
+function versioneInVigore(sezione, periodo) {
+  const v = versioniSezione(sezione);
+  if (!v.length) return null;
+  const p = normalizzaPeriodo(periodo) || periodoCorrente();
+  for (let i = v.length - 1; i >= 0; i--) if (v[i].da <= p) return v[i];
+  return v[0];
+}
+
+// Ciò che la tabella mostra: la bozza se c'è, altrimenti il dato in vigore.
+function datiVisualizzatiDatiFissi(sezione) {
+  const b = state.datiFissiBozza[sezione];
+  if (b !== undefined) return b.righe;
+  return datiSezionePerPeriodo(sezione, periodoLavoroDatiFissi());
+}
+
+// Crea la bozza (copia profonda) alla prima modifica, ricordando SU QUALE MESE
+// è nata: il mese di riferimento è unico per la pagina e potrebbe spostarsi
+// salvando un'altra sezione, e la bozza finirebbe scritta nel mese sbagliato.
+function bozzaDatiFissi(sezione) {
+  if (state.datiFissiBozza[sezione] === undefined) {
+    const periodo = periodoLavoroDatiFissi();
+    state.datiFissiBozza[sezione] = { periodo: periodo, righe: datiSezionePerPeriodo(sezione, periodo).map(r => ({ ...r })) };
+  }
+  return state.datiFissiBozza[sezione].righe;
+}
+
+// Abilita i pulsanti senza ridisegnare: un ridisegno a metà parola farebbe
+// perdere il fuoco alla cella.
+function segnalaBozzaDatiFissi(sezione) {
+  const salva = document.getElementById("dfSalva_" + sezione);
+  const annulla = document.getElementById("dfAnnulla_" + sezione);
+  const avviso = document.getElementById("dfAvvisoBozza_" + sezione);
+  if (salva) salva.disabled = false;
+  if (annulla) annulla.disabled = false;
+  if (avviso) avviso.style.display = "";
+}
+
+function bozzeInSospeso() { return Object.keys(state.datiFissiBozza); }
+
+function cambiaPeriodoDatiFissi(periodo) {
+  const p = normalizzaPeriodo(periodo);
+  if (!p) return;
+  if (bozzeInSospeso().length && !confirm("Ci sono modifiche non salvate: cambiando mese andranno perse. Continuare?")) {
+    renderTabDatiFissi(state.datiFissiTab);
+    return;
+  }
+  state.datiFissiBozza = {};
+  state.datiFissiPeriodo = p;
+  renderTabDatiFissi(state.datiFissiTab);
+}
+
+function annullaBozzaDatiFissi(sezione) {
+  delete state.datiFissiBozza[sezione];
+  renderTabDatiFissi(sezione);
+  toast("Modifiche annullate", "success");
+}
+
+// La domanda richiesta: da quale mese e anno vale la modifica.
+function chiediDecorrenzaDatiFissi(sezione) {
+  const bozza = state.datiFissiBozza[sezione];
+  if (bozza === undefined) { toast("Nessuna modifica da salvare", "warning"); return; }
+  // Si propone il mese su cui la bozza è nata; la decorrenza convenzionale del
+  // dato iniziale non è un mese vero e non può finire in una tendina.
+  const nato = bozza.periodo;
+  const proposta = (!nato || nato === DECORRENZA_INIZIALE) ? periodoCorrente() : nato;
+  const versioni = versioniSezione(sezione);
+  const avvisoIniziale = nato === DECORRENZA_INIZIALE
+    ? `<div class="mt-2" style="background:var(--warning-soft);color:var(--warning);padding:8px 12px;border-radius:6px;font-size:12px;">
+         Stavi guardando il <strong>dato iniziale</strong>. Salvando creerai una versione nuova a partire dal mese scelto;
+         il dato iniziale resta com'è.
+       </div>` : "";
+  openModal(`
+    <div class="modal-header"><h3>Da quando vale la modifica?</h3></div>
+    <div class="modal-body">
+      <p class="text-muted" style="font-size:13px">
+        Le modifiche a <strong>${escapeHtml(getTitoloSezione(sezione))}</strong> verranno stampate sui bollettini
+        da questo mese in poi. I bollettini dei mesi precedenti continueranno a riportare i dati di prima.
+      </p>
+      <div class="flex gap-2" style="align-items:center;margin-top:12px;">
+        ${selectPeriodo('dfDecorrenza', proposta, 'impostaDecorrenzaScelta')}
+      </div>
+      ${avvisoIniziale}
+      ${versioni.length ? `<div class="text-muted mt-2" style="font-size:12px">
+        Decorrenze già registrate: ${versioni.map(v => escapeHtml(etichettaPeriodo(v.da))).join(", ")}.
+        Scegliendone una si sostituisce quella versione, e verrà chiesta conferma.
+      </div>` : ""}
+    </div>
+    <div class="modal-footer flex gap-2" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn btn-primary" onclick="confermaSalvataggioDatiFissi('${sezione}')">Salva</button>
+    </div>
+  `);
+  state._decorrenzaScelta = proposta;
+}
+
+function impostaDecorrenzaScelta(periodo) {
+  const p = normalizzaPeriodo(periodo);
+  if (p) state._decorrenzaScelta = p;
+}
+
+async function confermaSalvataggioDatiFissi(sezione) {
+  const da = normalizzaPeriodo(state._decorrenzaScelta);
+  if (!da) { toast("Decorrenza non valida", "error"); return; }
+  const bozza = state.datiFissiBozza[sezione];
+  if (bozza === undefined) { closeModal(); return; }
+  // Sostituire una versione già registrata cancella i nomi che quei bollettini
+  // ristampano: va chiesto, con il mese scritto per esteso.
+  const sostituisce = versioniSezione(sezione).some(v => v.da === da);
+  if (sostituisce && !confirm(`Esiste già una versione in vigore da ${etichettaPeriodo(da)}.\n\nSostituirla? I bollettini di quei mesi riporteranno i nuovi dati e i precedenti non sono recuperabili.`)) return;
+  closeModal();
+  try {
+    await salvaSezioneStorica(sezione, da, bozza.righe, { sostituisci: sostituisce });
+    delete state.datiFissiBozza[sezione];
+    // Il mese di riferimento è unico per la pagina: spostarlo mentre altre
+    // sezioni hanno una bozza aperta le farebbe salvare nel mese sbagliato.
+    if (bozzeInSospeso().length === 0) state.datiFissiPeriodo = da;
+    await loadAllData();
+    renderTabDatiFissi(sezione);
+    toast(`Salvato: in vigore da ${etichettaPeriodo(da)}`, "success");
+  } catch (e) {
+    console.error("salvaSezioneStorica:", e);
+    toast("Salvataggio non riuscito: " + (e.message || e), "error");
+  }
+}
+
+async function cancellaDecorrenzaDatiFissi(sezione, decorrenza) {
+  if (!confirm(`Cancellare la versione in vigore da ${etichettaPeriodo(decorrenza)}?\n\nI bollettini di quei mesi torneranno a riportare la versione precedente. L'operazione non è reversibile.`)) return;
+  try {
+    await cancellaVersioneSezione(sezione, decorrenza);
+    await loadAllData();
+    renderTabDatiFissi(sezione);
+    toast("Decorrenza cancellata", "success");
+  } catch (e) {
+    console.error("cancellaVersioneSezione:", e);
+    toast("Cancellazione non riuscita: " + (e.message || e), "error");
   }
 }
 
@@ -4635,7 +5076,7 @@ function renderTabSezioniReport(cont) {
           </thead>
           <tbody>
             ${sezioni.map((sez, i) => {
-              const voci = (state.datiFissi[sez.key] || SEED_DATI_FISSI[sez.key] || []).length;
+              const voci = datiSezionePerPeriodo(sez.key, periodoLavoroDatiFissi()).length;
               return `
               <tr${sez.attiva === false ? ' style="opacity:.55"' : ''}>
                 <td style="text-align:center">${i + 1}</td>
@@ -4780,33 +5221,28 @@ function getColonneSchema(tab) {
   return schemas[tab] || [];
 }
 
-// Elenchi delle cariche: sono le sole chiavi riscritte da allineaCaricheAlBollettino().
-const CHIAVI_CARICHE = ["intestazione", "maestriVenerabili", "ispettoriCircoscrizionali",
-  "tribunaleCircoscrizionale", "granDignitario", "grandiUfficiali", "corteCentrale",
-  "collegioRevisori", "garantiAmicizia", "consiglioOrdine"];
-
-// Riallinea le tabelle delle cariche ai valori dell'ultimo bollettino pubblicato,
-// lasciando intatte le firme e la configurazione di ordine e colori.
-async function allineaCaricheAlBollettino() {
-  if (!confirm("Riscrivere le tabelle delle cariche con i dati dell'ultimo bollettino?\n\nFirme, ordine di stampa e colori non vengono toccati.")) return;
-  await Promise.all(CHIAVI_CARICHE.map(k => dbPut("datiFissi", { key: k, value: SEED_DATI_FISSI[k] })));
-  await loadAllData();
-  rerenderCurrent(true);
-  toast("Cariche allineate al bollettino", "success");
-}
-
-async function importaSeedDatiFissi(showConfirm) {
-  if (showConfirm && Object.keys(state.datiFissi).length > 0) {
-    if (!confirm("Sovrascrivere i dati fissi attuali con il seed predefinito?")) return;
+// Riscrive TUTTE le chiavi del seed. Chiede sempre conferma: su un Firestore
+// senza backup non deve esistere un percorso che sovrascrive i dati reali da
+// solo. Le versioni storiche non vengono toccate, e dopo il reimport restano
+// loro a decidere cosa si stampa: l'avviso lo dice.
+async function importaSeedDatiFissi() {
+  const conStorico = SEZIONI_STORICIZZATE.filter(sez => versioniSezione(sez).length > 0);
+  let avviso = "Sovrascrivere i dati fissi attuali con il seed predefinito?";
+  if (conStorico.length) {
+    avviso += "\n\nAttenzione: " + conStorico.length + " sezioni hanno uno storico di decorrenze, che NON viene toccato e continuerà a valere per la stampa.";
   }
-  const promises = [];
-  for (const k of Object.keys(SEED_DATI_FISSI)) {
-    promises.push(dbPut("datiFissi", { key: k, value: SEED_DATI_FISSI[k] }));
+  if (!confirm(avviso)) return;
+  try {
+    for (const k of Object.keys(SEED_DATI_FISSI)) {
+      await dbPut("datiFissi", { key: k, value: SEED_DATI_FISSI[k] });
+    }
+    await loadAllData();
+    rerenderCurrent(true);
+    toast("Dati fissi reimportati", "success");
+  } catch (e) {
+    console.error("importaSeedDatiFissi:", e);
+    toast("Reimport non riuscito: " + (e.message || e), "error");
   }
-  await Promise.all(promises);
-  await loadAllData();
-  PAGES["dati-fissi"]();
-  if (showConfirm) toast("Dati fissi reimportati", "success");
 }
 
 async function salvaFirme() {
@@ -4866,38 +5302,27 @@ function resetFiltriDatiFissi(tab) {
   toast("Filtri azzerati", "success");
 }
 
-// Un timer per ogni sezione: cambiando tab mentre si scrive, la modifica
-// precedente viene comunque salvata invece di essere annullata.
-const _datiFissiSaveTimers = {};
-async function aggiornaCellaDatiFissi(tab, idx, campo, value) {
-  const lista = (state.datiFissi[tab] || SEED_DATI_FISSI[tab] || []).slice();
+// Le tre modifiche alla tabella lavorano sulla bozza: su Firestore si scrive
+// solo da confermaSalvataggioDatiFissi(), che conosce la decorrenza.
+function aggiornaCellaDatiFissi(tab, idx, campo, value) {
+  const lista = bozzaDatiFissi(tab);
   if (!lista[idx]) lista[idx] = {};
-  lista[idx] = { ...lista[idx], [campo]: value };
-  state.datiFissi[tab] = lista;
-  // Debounce save
-  clearTimeout(_datiFissiSaveTimers[tab]);
-  _datiFissiSaveTimers[tab] = setTimeout(async () => {
-    await dbPut("datiFissi", { key: tab, value: lista });
-  }, 600);
+  lista[idx][campo] = value;
+  segnalaBozzaDatiFissi(tab);
 }
 
-async function aggiungiRigaDatiFissi(tab) {
-  const colonne = getColonneSchema(tab);
+function aggiungiRigaDatiFissi(tab) {
+  const lista = bozzaDatiFissi(tab);
   const newRow = {};
-  colonne.forEach(c => newRow[c.key] = "");
-  const lista = (state.datiFissi[tab] || []).slice();
+  getColonneSchema(tab).forEach(c => newRow[c.key] = "");
   lista.push(newRow);
-  await dbPut("datiFissi", { key: tab, value: lista });
-  await loadAllData();
   renderTabDatiFissi(tab);
 }
 
-async function cancellaRigaDatiFissi(tab, idx) {
+function cancellaRigaDatiFissi(tab, idx) {
   if (!confirm("Cancellare questa riga?")) return;
-  const lista = (state.datiFissi[tab] || []).slice();
+  const lista = bozzaDatiFissi(tab);
   lista.splice(idx, 1);
-  await dbPut("datiFissi", { key: tab, value: lista });
-  await loadAllData();
   renderTabDatiFissi(tab);
 }
 
@@ -4906,10 +5331,7 @@ async function cancellaRigaDatiFissi(tab, idx) {
    ============================================================ */
 
 PAGES.report = function() {
-  // Default: mese corrente
-  const oggi = new Date();
-  const primo = new Date(oggi.getFullYear(), oggi.getMonth(), 1);
-  const ultimo = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 0);
+  const periodo = periodoReport();
 
   const html = `
     <div class="page-header">
@@ -4917,18 +5339,21 @@ PAGES.report = function() {
     </div>
     <div class="card">
       <h3>Periodo del bollettino</h3>
-      <div class="form-grid" style="max-width: 600px;">
-        <div class="form-group">
-          <label>Data Inizio</label>
-          <input type="date" id="reportDateFrom" value="${isoDate(primo)}">
+      <div class="flex gap-2" style="flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0">
+          <label>Dal mese</label>
+          <div class="flex gap-2">${selectPeriodo('reportDal', periodo.dal, 'impostaPeriodoReportDal')}</div>
         </div>
-        <div class="form-group">
-          <label>Data Fine</label>
-          <input type="date" id="reportDateTo" value="${isoDate(ultimo)}">
+        <div class="form-group" style="margin:0">
+          <label>Al mese</label>
+          <div class="flex gap-2">${selectPeriodo('reportAl', periodo.al, 'impostaPeriodoReportAl')}</div>
         </div>
       </div>
       <div class="mt-2 text-muted" style="font-size:12px">
-        Saranno incluse tutte le pratiche con <strong>Data Documento</strong> compresa nell'intervallo (estremi inclusi).
+        Bollettino di <strong>${escapeHtml(etichettaIntervalloPeriodi(periodo.dal, periodo.al))}</strong>:
+        saranno incluse le pratiche con <strong>Data Documento</strong> in quei mesi, e le cariche
+        in vigore a ${escapeHtml(etichettaPeriodo(periodo.al))}.
+        Per un solo mese lascia i due mesi uguali.
       </div>
       <div class="mt-2 flex gap-2">
         <button class="btn btn-gold" onclick="generaPDF(false)">${icon("printer", 16)} Genera Bollettino PDF</button>
@@ -4940,7 +5365,42 @@ PAGES.report = function() {
     <div id="reportPreview"></div>
   `;
   document.getElementById("page").innerHTML = html;
+  if (state._reportElencoAperto) rerenderReportTable();
 };
+
+/* ------------------------------------------------------------
+   Periodo del bollettino: mese e anno, non date.
+   Il periodo vive nello stato e non nel DOM, altrimenti ogni aggiornamento
+   real-time di Firestore ridisegna la pagina e riazzera le tendine.
+   ------------------------------------------------------------ */
+
+function periodoReport() {
+  if (!state.reportPeriodo) {
+    const ora = periodoCorrente();
+    state.reportPeriodo = { dal: ora, al: ora };
+  }
+  const dal = normalizzaPeriodo(state.reportPeriodo.dal) || periodoCorrente();
+  const al = normalizzaPeriodo(state.reportPeriodo.al) || dal;
+  return { dal, al, dateFrom: primoGiornoDelPeriodo(dal), dateTo: ultimoGiornoDelPeriodo(al) };
+}
+
+// Cambiando il mese iniziale, quello finale lo segue se erano uguali: così il
+// caso normale (bollettino di un mese solo) resta a due clic.
+function impostaPeriodoReportDal(periodo) {
+  const p = normalizzaPeriodo(periodo);
+  if (!p) return;
+  const prima = periodoReport();
+  state.reportPeriodo = { dal: p, al: (prima.dal === prima.al || prima.al < p) ? p : prima.al };
+  PAGES.report();
+}
+
+function impostaPeriodoReportAl(periodo) {
+  const p = normalizzaPeriodo(periodo);
+  if (!p) return;
+  const prima = periodoReport();
+  state.reportPeriodo = { dal: prima.dal, al: p };
+  PAGES.report();
+}
 
 function getPraticheNelPeriodo(dateFrom, dateTo) {
   return state.pratiche.filter(p => {
@@ -4958,19 +5418,17 @@ function getPraticheNelPeriodo(dateFrom, dateTo) {
 }
 
 function mostraPraticheNelPeriodo() {
-  const dateFrom = document.getElementById("reportDateFrom").value;
-  const dateTo = document.getElementById("reportDateTo").value;
-  state._reportPeriodo = { from: dateFrom, to: dateTo };
+  state._reportElencoAperto = true;
   rerenderReportTable();
 }
 
 function rerenderReportTable() {
   const cont = document.getElementById("reportPreview");
   if (!cont) return;
-  const periodo = state._reportPeriodo || {};
-  const pratiche = getPraticheNelPeriodo(periodo.from, periodo.to);
+  const periodo = periodoReport();
+  const pratiche = getPraticheNelPeriodo(periodo.dateFrom, periodo.dateTo);
   if (pratiche.length === 0) {
-    cont.innerHTML = `<div class="card empty-state"><h4>Nessuna pratica nel periodo</h4><div class="text-muted">Modifica le date o aggiungi pratiche al Database.</div></div>`;
+    cont.innerHTML = `<div class="card empty-state"><h4>Nessuna pratica in ${escapeHtml(etichettaIntervalloPeriodi(periodo.dal, periodo.al))}</h4><div class="text-muted">Cambia mese o anno, oppure aggiungi pratiche al Database.</div></div>`;
     return;
   }
   // Calcola stato + loggia info per ogni pratica
@@ -5005,7 +5463,7 @@ function rerenderReportTable() {
     <div class="card" style="margin-top:16px;padding:16px;">
       <div class="flex-between mb-2" style="flex-wrap:wrap;gap:8px;">
         <h3 style="margin:0">Pratiche nel periodo (${filtrate.length}${conStato.length !== filtrate.length ? '/' + conStato.length : ''})</h3>
-        <div class="text-muted" style="font-size:12px;">${formatDate(periodo.from)} - ${formatDate(periodo.to)}</div>
+        <div class="text-muted" style="font-size:12px;">${escapeHtml(etichettaIntervalloPeriodi(periodo.dal, periodo.al))}</div>
       </div>
       <div class="table-wrap excel-style">
         <div style="max-height: calc(100vh - 380px); overflow: auto;">
@@ -5187,11 +5645,9 @@ function getSezioniReport() {
 }
 
 function generaPDF(anteprima = false) {
-  const dateFrom = document.getElementById("reportDateFrom").value;
-  const dateTo = document.getElementById("reportDateTo").value;
-  if (!dateFrom || !dateTo) { toast("Inserisci entrambe le date", "error"); return; }
-  if (dateFrom > dateTo) { toast("Data Inizio successiva alla Data Fine", "error"); return; }
-  const pratiche = getPraticheNelPeriodo(dateFrom, dateTo);
+  const periodo = periodoReport();
+  if (periodo.dal > periodo.al) { toast("Il mese iniziale è successivo al mese finale", "error"); return; }
+  const pratiche = getPraticheNelPeriodo(periodo.dateFrom, periodo.dateTo);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
@@ -5209,16 +5665,20 @@ function generaPDF(anteprima = false) {
     renderTabellaTipo(doc, tipo, sub);
   }
 
-  // Pagine finali: tabelle istituzionali (no pagina firme)
-  renderTabelleIstituzionali(doc);
+  // Pagine finali: tabelle istituzionali con le cariche in vigore alla fine del
+  // periodo, cioè quelle in carica quando il bollettino viene pubblicato.
+  renderTabelleIstituzionali(doc, periodo.al);
 
   // Output
-  const dateLabel = dateFrom.replace(/-/g, "") + "_" + dateTo.replace(/-/g, "");
-  const filename = `Bollettino_Collegio_Circoscrizionale_Lazio_${dateLabel}.pdf`;
+  const etichetta = etichettaIntervalloPeriodi(periodo.dal, periodo.al).replace(/\s*-\s*/g, "-").replace(/[^A-Za-z0-9_-]+/g, "_");
+  const filename = `Bollettino_Collegio_Circoscrizionale_Lazio_${etichetta}.pdf`;
 
   if (anteprima) {
     const blob = doc.output("blob");
+    // Il blob dell'anteprima precedente resterebbe in memoria a ogni ridisegno.
+    if (_anteprimaUrl) { try { URL.revokeObjectURL(_anteprimaUrl); } catch (e) {} }
     const url = URL.createObjectURL(blob);
+    _anteprimaUrl = url;
     const cont = document.getElementById("reportPreview");
     cont.innerHTML = `
       <div class="card">
@@ -5241,6 +5701,9 @@ function generaPDF(anteprima = false) {
     toast("Bollettino PDF generato", "success");
   }
 }
+
+// Url dell'ultima anteprima, per poterlo revocare quando se ne genera un'altra.
+let _anteprimaUrl = null;
 
 // Disegna il simbolo massonico (squadra + compasso + G) centrato in (cx, cy) con raggio r in mm.
 function disegnaSimboloMassonico(doc, cx, cy, r) {
@@ -5415,12 +5878,17 @@ function renderTabellaTipo(doc, tipo, pratiche) {
   doc._cursorY = doc.lastAutoTable.finalY + 6;
 }
 
-function renderTabelleIstituzionali(doc) {
+function renderTabelleIstituzionali(doc, periodo) {
+  const mese = normalizzaPeriodo(periodo) || periodoCorrente();
   const intestazione = state.datiFissi.intestazione || SEED_DATI_FISSI.intestazione;
   const coloreIntestazione = hexToRgb(state.datiFissi.intestazioneColore, COLOR_BANNER_BLU);
   // Ordine di stampa, titoli e colori arrivano dai Dati Fissi (tab "Ordine e Colori"),
   // le colonne restano definite nel codice: vedi COLONNE_SEZIONI_REPORT.
   const sezioni = getSezioniReport().filter(s => s.attiva !== false && COLONNE_SEZIONI_REPORT[s.key]);
+
+  // Una sezione senza dati alla decorrenza richiesta viene saltata: lo si dice,
+  // altrimenti non si distingue "non c'era" da "dato perso".
+  const sezioniVuote = [];
 
   // Nuova pagina per la sezione cariche
   doc.addPage();
@@ -5431,8 +5899,10 @@ function renderTabelleIstituzionali(doc) {
   cursorY += 4;
 
   for (const s of sezioni) {
-    const rows = state.datiFissi[s.key] || SEED_DATI_FISSI[s.key] || [];
-    if (rows.length === 0) continue;
+    // Le cariche in vigore nel mese richiesto: ristampando un bollettino
+    // vecchio devono comparire i nomi in carica allora.
+    const rows = datiSezionePerPeriodo(s.key, mese);
+    if (!rows || rows.length === 0) { sezioniVuote.push(s.titolo); continue; }
     const colonne = COLONNE_SEZIONI_REPORT[s.key];
     const coloreBanner = hexToRgb(s.colore, COLOR_BANNER_VERDE);
     const coloreHead = hexToRgb(s.coloreHead, COLOR_HEAD_BLU);
@@ -5487,6 +5957,10 @@ function renderTabelleIstituzionali(doc) {
       }, {})
     });
     cursorY = doc.lastAutoTable.finalY + 8;
+  }
+
+  if (sezioniVuote.length) {
+    toast("Sezioni senza dati a " + etichettaPeriodo(mese) + ", non stampate: " + sezioniVuote.join(", "), "warning");
   }
 }
 
@@ -5616,14 +6090,14 @@ async function caricaAppDopoLogin(user) {
       console.log("Firestore vuoto: importo le logge seed");
       for (const l of SEED_LOGGE) await dbPut("logge", l, { skipLog: true });
     }
-    if (Object.keys(state.datiFissi).length === 0) {
+    if (!datiFissiPresenti()) {
       aggiornaSplashStatus("Inizializzazione dati fissi...");
       console.log("Firestore vuoto: importo i dati fissi seed");
       for (const k of Object.keys(SEED_DATI_FISSI)) {
         await dbPut("datiFissi", { key: k, value: SEED_DATI_FISSI[k] }, { skipLog: true });
       }
     }
-    if (state.logge.length === 0 || Object.keys(state.datiFissi).length === 0) {
+    if (state.logge.length === 0 || !datiFissiPresenti()) {
       await loadAllData();
     }
 
@@ -5671,8 +6145,7 @@ function setupRealtimeListeners() {
   // Dati Fissi
   _realtimeListeners.push(fbDB.collection("datiFissi").onSnapshot(snap => {
     if (firstDatiSnapshot) { firstDatiSnapshot = false; return; }
-    state.datiFissi = {};
-    snap.docs.forEach(d => { const data = d.data(); state.datiFissi[data.key] = data.value; });
+    indicizzaDatiFissi(snap.docs.map(d => d.data()));
     rerenderCurrent();
   }, err => console.error("onSnapshot datiFissi:", err)));
 }
