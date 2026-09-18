@@ -40,8 +40,11 @@ il workflow [`pages.yml`](.github/workflows/pages.yml), con **Deploy from a
 branch** pubblica la build automatica di GitHub. Il file `.nojekyll` impedisce
 a Jekyll di servire questo README al posto dell'app: non rimuoverlo.
 
-`firebase.json` è conservato come via di ritorno: se servisse ripubblicare su
-Firebase Hosting, `firebase deploy --only hosting` funziona ancora.
+Su Firebase Hosting resta solo un redirect verso questo indirizzo, per non
+rompere i vecchi link `*.web.app`. Si aggiorna con `firebase deploy --only
+hosting` da una macchina con la CLI di Firebase; la cartella
+`firebase-hosting-redirect/` deve restare vuota, altrimenti il file statico
+vince sul redirect.
 
 ## Il database non si tocca
 

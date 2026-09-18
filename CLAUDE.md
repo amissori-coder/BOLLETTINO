@@ -85,8 +85,24 @@ di Firebase Auth vincola solo i flussi popup/redirect OAuth, quindi il
 cambio di dominio non ha richiesto interventi sulla console. Se in futuro si
 aggiungesse un login Google o simile, il dominio di Pages va aggiunto lì.
 
-`firebase.json` resta nel repository come via di ritorno: `firebase deploy
---only hosting` continua a funzionare se servisse ripubblicare su Firebase.
+### Firebase Hosting: solo un redirect
+
+`firebase.json` non pubblica più l'app: serve **solo un redirect 302** verso
+l'indirizzo di Pages, così i vecchi link `*.web.app` continuano a funzionare.
+La cartella `firebase-hosting-redirect/` deve restare **vuota**: in Firebase
+Hosting i file statici hanno priorità sui redirect, quindi un `index.html`
+lì dentro verrebbe servito al posto del redirect.
+
+Il redirect è 302 (temporaneo) e non 301 di proposito: un 301 viene messo in
+cache dai browser in modo aggressivo e renderebbe difficile tornare indietro.
+
+Il redirect va online solo quando qualcuno esegue `firebase deploy --only
+hosting` da una macchina con la CLI: dal repository non parte nulla verso
+Firebase. Per ripubblicare l'app su Firebase Hosting, se servisse, si
+ripristina la vecchia configurazione dalla storia di git.
+
+**Mai eliminare il progetto Firebase**: cancellerebbe anche Firestore e
+l'autenticazione. Hosting si spegne da solo, con `firebase hosting:disable`.
 
 ## Regola inderogabile: il database non si tocca
 

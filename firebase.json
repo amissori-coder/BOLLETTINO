@@ -1,20 +1,21 @@
 {
   "hosting": {
-    "public": ".",
+    "public": "firebase-hosting-redirect",
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**",
-      "README.md",
-      "CLAUDE.md",
-      "docs/**",
-      "tools/**",
-      "recovered/**"
+      "**/node_modules/**"
     ],
-    "rewrites": [
+    "redirects": [
       {
-        "source": "**",
-        "destination": "/index.html"
+        "source": "/",
+        "destination": "https://amissori-coder.github.io/BOLLETTINO/",
+        "type": 302
+      },
+      {
+        "source": "/**",
+        "destination": "https://amissori-coder.github.io/BOLLETTINO/",
+        "type": 302
       }
     ]
   }
