@@ -50,6 +50,24 @@ fissi report · genera report · generazione PDF · init del flusso di auth.
 
 `pratiche` · `logge` · `users` · `datiFissi` · `logs` · `presence` · `_meta`
 
+In `datiFissi` ogni documento è una coppia `key`/`value`. Oltre agli elenchi
+delle cariche ci sono tre chiavi di configurazione: `intestazione` e
+`intestazioneColore` (il banner che apre la sezione delle cariche) e
+`sezioniReport`, che tiene **ordine di stampa, titolo e colori** di ogni tabella
+istituzionale del PDF. Le colonne restano invece nel codice, in
+`COLONNE_SEZIONI_REPORT`: `getSezioniReport()` fonde la configurazione salvata
+con il seed, così una sezione aggiunta in un aggiornamento compare in coda anche
+su un database già popolato. L'utente modifica tutto dalla tab
+*Dati Fissi Report → Ordine e Colori*.
+
+Le pagine si ridisegnano riscrivendo l'intero `innerHTML`, e i listener
+real-time di Firestore fanno scattare un ridisegno a ogni salvataggio: per non
+far perdere il fuoco a chi sta scrivendo, `rerenderCurrent()` rimanda il
+ridisegno finché un campo di testo è attivo e `conservaFocus()` ripristina fuoco
+e cursore quando il ridisegno avviene comunque. Chi aggiunge campi editabili
+inline dovrebbe dar loro un `id` stabile, altrimenti il fuoco non è
+recuperabile.
+
 ## Hosting e deploy
 
 L'app è servita da **GitHub Pages**, non più da Firebase Hosting.
