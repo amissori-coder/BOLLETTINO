@@ -1924,6 +1924,32 @@ async function migrateIfNeeded() {
    UI HELPERS: SIDEBAR MOBILE, RICERCA GLOBALE, SPINNER
    ============================================================ */
 
+/* ------------------------------------------------------------
+   CAMPI DATA: apertura automatica del calendario
+   I browser aprono il calendario nativo solo cliccando sull'iconcina a
+   destra del campo. Qui lo apriamo appena il campo riceve il fuoco o un
+   click, su qualunque <input type="date"> della pagina, anche quelli
+   disegnati dopo (modali, filtri, campi strutturati). Il listener è
+   delegato al documento proprio perché le pagine riscrivono l'innerHTML.
+   showPicker() richiede un gesto dell'utente e lancia un'eccezione se il
+   fuoco arriva da codice (es. conservaFocus) o se il calendario è già
+   aperto: in quei casi non c'è nulla da fare e l'errore si ignora.
+   ------------------------------------------------------------ */
+let _ultimaAperturaCalendario = 0;
+
+function apriCalendario(input) {
+  if (!input || input.type !== "date" || input.disabled || input.readOnly) return;
+  if (typeof input.showPicker !== "function") return;
+  const ora = Date.now();
+  // focusin e click arrivano insieme sullo stesso gesto: apro una volta sola
+  if (ora - _ultimaAperturaCalendario < 400) return;
+  _ultimaAperturaCalendario = ora;
+  try { input.showPicker(); } catch (e) { /* senza gesto utente o già aperto */ }
+}
+
+document.addEventListener("focusin", (e) => apriCalendario(e.target));
+document.addEventListener("click", (e) => apriCalendario(e.target));
+
 function toggleSidebar() {
   const sb = document.getElementById("appSidebar");
   const ov = document.getElementById("sidebarOverlay");
@@ -2956,11 +2982,32 @@ async function cancellaPratica(id) {
    FORM PRATICA (NUOVA / MODIFICA)
    ============================================================ */
 
+/* ------------------------------------------------------------
+   ULTIMA DATA DOCUMENTO
+   Le pratiche si inseriscono a lotti, spesso tutte con la stessa data
+   documento: una nuova pratica propone quindi l'ultima data salvata, non
+   oggi. La ricordiamo in localStorage (per browser) così resiste anche a
+   un ricaricamento della pagina; se manca o non è una data valida si
+   torna a oggi.
+   ------------------------------------------------------------ */
+const CHIAVE_ULTIMA_DATA_DOC = "bollettino.ultimaDataDocumento";
+
+function ultimaDataDocumento() {
+  let v = "";
+  try { v = localStorage.getItem(CHIAVE_ULTIMA_DATA_DOC) || ""; } catch (e) { /* storage non disponibile */ }
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : isoDate(new Date());
+}
+
+function ricordaUltimaDataDocumento(data) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data || "")) return;
+  try { localStorage.setItem(CHIAVE_ULTIMA_DATA_DOC, data); } catch (e) { /* storage non disponibile */ }
+}
+
 async function apriFormPratica(id = null) {
   const pratica = id ? await dbGet("pratiche", id) : {
     id: uid(),
     tipoModello: "",
-    dataDocumento: isoDate(new Date()),
+    dataDocumento: ultimaDataDocumento(),
     numeroLoggia: state._loggiaPreselezionata || "",
     cognomeNome: "",
     dataEvento: "",
@@ -3077,6 +3124,7 @@ async function apriFormPratica(id = null) {
       </div>
       <div class="flex gap-2">
         <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+        ${id ? '' : `<button class="btn btn-secondary" onclick="salvaPratica('${pratica.id}', false, true)" title="Salva questa pratica e apri subito il form per la successiva">Salva e nuova</button>`}
         <button class="btn btn-primary" onclick="salvaPratica('${pratica.id}', ${id ? 'true' : 'false'})">${id ? 'Aggiorna' : 'Salva'}</button>
       </div>
     </div>
@@ -3116,6 +3164,7 @@ async function apriFormPratica(id = null) {
   // Inizializza
   autofillLoggia();
   aggiornaCampiCondizionali(pratica);
+  if (!id) fldTipo.focus();
 }
 
 function autofillLoggia() {
@@ -3502,7 +3551,9 @@ async function riapriPraticaForzatamente(id) {
   toast("Flusso riaperto", "success");
 }
 
-async function salvaPratica(id, isEdit) {
+// continua = true ("Salva e nuova"): dopo il salvataggio riapre subito un form
+// vuoto per la pratica successiva, senza tornare all'elenco.
+async function salvaPratica(id, isEdit, continua = false) {
   const form = document.getElementById("formPratica");
   const fd = new FormData(form);
   const tipo = fd.get("tipoModello");
@@ -3589,11 +3640,13 @@ async function salvaPratica(id, isEdit) {
   pratica.updatedByEmail = currentUser?.email || "";
   pratica.updatedByUid = currentUser?.uid || "";
   await dbPut("pratiche", pratica);
+  ricordaUltimaDataDocumento(pratica.dataDocumento);
   closeModal();
   state._praticaInEdit = null;
   await loadAllData();
   PAGES.database();
   toast(isEdit ? "Pratica aggiornata" : "Pratica salvata", "success");
+  if (continua && !isEdit) await apriFormPratica();
 }
 
 /* ============================================================
