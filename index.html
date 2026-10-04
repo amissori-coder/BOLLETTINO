@@ -190,6 +190,9 @@ body { display: flex; min-height: 100vh; }
 }
 .form-group textarea { resize: vertical; min-height: 64px; line-height: 1.5; }
 .form-group input[readonly] { background: var(--bg-alt); color: var(--text-muted); cursor: default; }
+/* L'iconcina del calendario è il modo per riaprirlo su un campo già compilato: la rendiamo evidente */
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.7; padding: 2px 4px; border-radius: 4px; }
+input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; background: var(--bg-alt); }
 .form-group .hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
 
 .table-wrap { background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
@@ -1945,27 +1948,24 @@ async function migrateIfNeeded() {
 /* ------------------------------------------------------------
    CAMPI DATA: apertura automatica del calendario
    I browser aprono il calendario nativo solo cliccando sull'iconcina a
-   destra del campo. Qui lo apriamo appena il campo riceve il fuoco o un
-   click, su qualunque <input type="date"> della pagina, anche quelli
+   destra del campo. Qui lo apriamo anche cliccando dentro un campo data
+   VUOTO, su qualunque <input type="date"> della pagina, anche quelli
    disegnati dopo (modali, filtri, campi strutturati). Il listener è
    delegato al documento proprio perché le pagine riscrivono l'innerHTML.
-   showPicker() richiede un gesto dell'utente e lancia un'eccezione se il
-   fuoco arriva da codice (es. conservaFocus) o se il calendario è già
-   aperto: in quei casi non c'è nulla da fare e l'errore si ignora.
+   La data deve restare digitabile: con il calendario aperto la tastiera
+   non arriva al campo, quindi il fuoco da tastiera (Tab) non lo apre mai,
+   e nemmeno il click su un campo che ha già un valore, dove il click
+   serve a correggere a mano (l'iconcina resta sempre disponibile).
+   showPicker() richiede un gesto dell'utente e lancia un'eccezione se
+   il calendario è già aperto: in quei casi l'errore si ignora.
    ------------------------------------------------------------ */
-let _ultimaAperturaCalendario = 0;
-
 function apriCalendario(input) {
   if (!input || input.type !== "date" || input.disabled || input.readOnly) return;
+  if (input.value) return;
   if (typeof input.showPicker !== "function") return;
-  const ora = Date.now();
-  // focusin e click arrivano insieme sullo stesso gesto: apro una volta sola
-  if (ora - _ultimaAperturaCalendario < 400) return;
-  _ultimaAperturaCalendario = ora;
   try { input.showPicker(); } catch (e) { /* senza gesto utente o già aperto */ }
 }
 
-document.addEventListener("focusin", (e) => apriCalendario(e.target));
 document.addEventListener("click", (e) => apriCalendario(e.target));
 
 function toggleSidebar() {
@@ -3048,10 +3048,10 @@ async function apriFormPratica(id = null) {
         <div class="form-grid">
           <div class="form-group full">
             <label>Tipo Modello <span class="req">*</span></label>
-            <select name="tipoModello" id="fldTipo" required>
-              <option value="">- Seleziona -</option>
-              ${TIPI_MODELLO.map(t => `<option value="${escapeHtml(t)}" ${pratica.tipoModello===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
-            </select>
+            <input type="text" name="tipoModello" id="fldTipo" list="tipiModelloDatalist" autocomplete="off" value="${escapeHtml(pratica.tipoModello || '')}" placeholder="Digita per cercare (es. C1, EXEAT) o scegli dall'elenco" required>
+            <datalist id="tipiModelloDatalist">
+              ${TIPI_MODELLO.map(t => `<option value="${escapeHtml(t)}"></option>`).join('')}
+            </datalist>
             <div class="hint" id="hintTipo">Il primo passo: determina i campi richiesti e il template del bollettino.</div>
           </div>
 
@@ -3063,7 +3063,7 @@ async function apriFormPratica(id = null) {
 
           <div class="form-group">
             <label>Numero Loggia <span class="req">*</span></label>
-            <input type="number" name="numeroLoggia" id="fldLoggia" list="loggeDatalist" value="${pratica.numeroLoggia || ''}" required>
+            <input type="text" inputmode="numeric" name="numeroLoggia" id="fldLoggia" list="loggeDatalist" autocomplete="off" value="${pratica.numeroLoggia || ''}" placeholder="Numero o nome della Loggia" required>
             <datalist id="loggeDatalist">
               ${state.logge.map(l => `<option value="${l.numero}">${escapeHtml(l.nome)} - ${escapeHtml(l.oriente)}</option>`).join('')}
             </datalist>
@@ -3176,8 +3176,21 @@ async function apriFormPratica(id = null) {
   // Bind: cambio tipo modello → aggiorna campi condizionali
   const fldTipo = document.getElementById("fldTipo");
   fldTipo.addEventListener("change", () => aggiornaCampiCondizionali(pratica));
+  // Mentre si digita, i campi condizionali seguono solo una voce completa
+  // dell'elenco (o il campo svuotato): un testo a metà non ridisegna nulla.
+  fldTipo.addEventListener("input", () => {
+    const v = fldTipo.value;
+    if (!v || TIPI_MODELLO.includes(v)) aggiornaCampiCondizionali(pratica);
+  });
   // Bind: cambio numero loggia → autofill
-  document.getElementById("fldLoggia").addEventListener("input", autofillLoggia);
+  const fldLoggia = document.getElementById("fldLoggia");
+  fldLoggia.addEventListener("input", autofillLoggia);
+  // Quando si esce dal campo (o si sceglie dall'elenco) il testo scritto,
+  // anche un nome, viene sostituito dal numero della Loggia riconosciuta.
+  fldLoggia.addEventListener("change", () => {
+    const lo = risolviLoggia(fldLoggia.value);
+    if (lo && fldLoggia.value.trim() !== String(lo.numero)) { fldLoggia.value = lo.numero; autofillLoggia(); }
+  });
 
   // Inizializza
   autofillLoggia();
@@ -3185,9 +3198,32 @@ async function apriFormPratica(id = null) {
   if (!id) fldTipo.focus();
 }
 
+// Riconosce una Loggia da ciò che l'utente ha scritto nel campo Numero
+// Loggia: il numero, oppure il nome (intero o un inizio che identifica una
+// sola Loggia). Restituisce la Loggia o null.
+function risolviLoggia(testo) {
+  const v = String(testo || "").trim();
+  if (!v) return null;
+  if (/^\d+$/.test(v)) {
+    const num = parseInt(v, 10);
+    return state.logge.find(l => l.numero === num) || null;
+  }
+  const q = normalizeName(v);
+  if (!q) return null;
+  const esatta = state.logge.find(l => normalizeName(l.nome) === q);
+  if (esatta) return esatta;
+  const candidate = state.logge.filter(l => normalizeName(l.nome).startsWith(q));
+  return candidate.length === 1 ? candidate[0] : null;
+}
+
+// Numero della Loggia attualmente indicata nel form (0 se non riconosciuta)
+function numeroLoggiaForm() {
+  const inp = document.getElementById("fldLoggia");
+  return inp ? (risolviLoggia(inp.value)?.numero || 0) : 0;
+}
+
 function autofillLoggia() {
-  const num = parseInt(document.getElementById("fldLoggia").value, 10);
-  const lo = state.logge.find(l => l.numero === num);
+  const lo = risolviLoggia(document.getElementById("fldLoggia").value);
   document.getElementById("fldNomeLoggia").value = lo?.nome || "";
   document.getElementById("fldOriente").value = lo?.oriente || "";
   // Aggiorna anche autocomplete e avviso (cambio loggia -> cambia lista nominativi)
@@ -3228,7 +3264,7 @@ function autocompleteCognome() {
   const input = document.getElementById("fldCognome");
   const list = document.getElementById("autocompleteList");
   if (!input || !list) return;
-  const numLoggia = parseInt(document.getElementById("fldLoggia").value, 10);
+  const numLoggia = numeroLoggiaForm();
   const query = normalizeName(input.value);
 
   if (!numLoggia) {
@@ -3280,7 +3316,7 @@ function selezionaNominativo(nome) {
 function aggiornaPraticheSospese() {
   const cont = document.getElementById("praticheSospese");
   if (!cont) return;
-  const numLoggia = parseInt(document.getElementById("fldLoggia").value, 10);
+  const numLoggia = numeroLoggiaForm();
   const cognome = document.getElementById("fldCognome").value;
   if (!numLoggia || !cognome) { cont.innerHTML = ""; return; }
 
@@ -3608,13 +3644,14 @@ async function riapriPraticaForzatamente(id) {
 async function salvaPratica(id, isEdit, continua = false) {
   const form = document.getElementById("formPratica");
   const fd = new FormData(form);
-  const tipo = fd.get("tipoModello");
+  const tipo = (fd.get("tipoModello") || "").trim();
   if (!tipo) { toast("Seleziona il Tipo Modello", "error"); return; }
+  if (!TIPI_MODELLO.includes(tipo)) { toast("Tipo Modello non riconosciuto: scegli una voce dall'elenco", "error"); return; }
   if (!fd.get("dataDocumento")) { toast("Inserisci la Data Documento", "error"); return; }
-  const numLoggia = parseInt(fd.get("numeroLoggia"), 10);
-  if (!numLoggia) { toast("Inserisci il Numero Loggia", "error"); return; }
-  const lo = state.logge.find(l => l.numero === numLoggia);
-  if (!lo) { toast("Numero Loggia non valido (non trovato in elenco)", "error"); return; }
+  if (!(fd.get("numeroLoggia") || "").trim()) { toast("Inserisci il Numero Loggia", "error"); return; }
+  const lo = risolviLoggia(fd.get("numeroLoggia"));
+  if (!lo) { toast("Loggia non riconosciuta: indica il numero o scegli dall'elenco", "error"); return; }
+  const numLoggia = lo.numero;
   if (!(fd.get("cognomeNome") || "").trim()) { toast("Inserisci Cognome e Nome", "error"); return; }
   if (!fd.get("dataEvento")) { toast("Inserisci la Data Evento", "error"); return; }
   if (TIPI_SECONDA_DATA.includes(tipo) && !fd.get("secondaData")) {
