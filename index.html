@@ -882,7 +882,7 @@ const TIPO_CONFIG = {
 // Schema campi anagrafici comune (C1 INIZIAZIONE/RIAMMISSIONE/VARIAZIONE)
 const SCHEMA_ANAGRAFICA = [
   { key: "luogoNascita", label: "Luogo di Nascita", type: "text", placeholder: "Es. ROMA" },
-  { key: "dataNascita", label: "Data di Nascita", type: "text", placeholder: "gg/mm/aaaa" },
+  { key: "dataNascita", label: "Data di Nascita", type: "data-it", placeholder: "gg/mm/aaaa" },
   { key: "tipoResidenza", label: "Residente / Domiciliato", type: "select", options: ["RESIDENTE", "DOMICILIATO"] },
   { key: "residenza", label: "Comune", type: "text", placeholder: "Es. ROMA" },
   { key: "cap", label: "CAP", type: "text", placeholder: "00100" },
@@ -1297,6 +1297,24 @@ function formatDate(d) {
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   const yyyy = date.getFullYear();
   return `${dd}/${mm}/${yyyy}`;
+}
+
+// Conversione fra la data "italiana" gg/mm/aaaa (come sta scritta nel
+// bollettino e nei dati specifici già salvati) e il formato aaaa-mm-gg che
+// vuole <input type="date">. Lavorano sulle stringhe, senza passare da Date:
+// niente fuso orario, niente giorni che scivolano. Restituiscono "" se il
+// valore non è una data riconoscibile, così chi chiama sa di non convertire.
+function dataItalianaToIso(v) {
+  const m = String(v || "").trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if (!m) return "";
+  const gg = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+  if (gg < 1 || gg > 31 || mm < 1 || mm > 12) return "";
+  return `${m[3]}-${String(mm).padStart(2, "0")}-${String(gg).padStart(2, "0")}`;
+}
+
+function isoToDataItaliana(v) {
+  const m = String(v || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
 }
 
 function isoDate(d) {
@@ -3440,6 +3458,27 @@ function aggiornaCampiCondizionali(pratica) {
             </select>
           </div>`;
       }
+      if (f.type === 'data-it') {
+        // Data scritta gg/mm/aaaa nei dati salvati, ma scelta dal calendario.
+        // Se il valore esistente non è una data riconoscibile (pratiche vecchie
+        // con "1980" o "marzo 1980") resta un campo di testo: un type="date"
+        // lo mostrerebbe vuoto e al salvataggio lo cancellerebbe.
+        const cur = valori[f.key] || '';
+        const iso = dataItalianaToIso(cur);
+        if (cur && !iso) {
+          return `
+            <div class="form-group" style="grid-column: span 1;">
+              <label>${escapeHtml(f.label)}</label>
+              <input type="text" data-fkey="${f.key}" value="${escapeHtml(cur)}" placeholder="${escapeHtml(f.placeholder || '')}" oninput="aggiornaPreviewDatiSpecifici()">
+              <div class="hint" style="margin-top:3px;">Valore in formato libero: riscrivilo come gg/mm/aaaa per avere il calendario.</div>
+            </div>`;
+        }
+        return `
+          <div class="form-group" style="grid-column: span 1;">
+            <label>${escapeHtml(f.label)}</label>
+            <input type="date" data-fkey="${f.key}" data-formato="it" value="${iso}" oninput="aggiornaPreviewDatiSpecifici()" onchange="aggiornaPreviewDatiSpecifici()">
+          </div>`;
+      }
       return `
         <div class="form-group" style="grid-column: ${fields.length === 1 ? '1 / -1' : 'span 1'};">
           <label>${escapeHtml(f.label)}</label>
@@ -3455,6 +3494,20 @@ function aggiornaCampiCondizionali(pratica) {
   txt.style.display = "";
   sel.style.display = "none";
   hint.textContent = config ? `Sarà mostrato nella colonna "${config.colE}" del bollettino.` : "";
+}
+
+// Legge i campi strutturati del form in un oggetto { chiave: valore }.
+// È l'unico punto che traduce il valore del DOM nel valore salvato: i campi
+// data-formato="it" sono <input type="date"> ma nei dati restano gg/mm/aaaa,
+// come nel bollettino e nelle pratiche già archiviate.
+function leggiCampiStrutturati(struct) {
+  const valori = {};
+  struct.querySelectorAll("[data-fkey]").forEach(inp => {
+    let v = (inp.value || "").trim();
+    if (inp.dataset.formato === "it") v = isoToDataItaliana(v);
+    valori[inp.dataset.fkey] = v;
+  });
+  return valori;
 }
 
 // Aggiorna l'anteprima della stringa formattata generata dai campi strutturati
@@ -3482,8 +3535,7 @@ function aggiornaPreviewDatiSpecifici() {
   if (!tipo || !struct || !preview) return;
   const fields = TIPO_FIELDS[tipo];
   if (!fields || !fields.length) { preview.style.display = "none"; return; }
-  const valori = {};
-  struct.querySelectorAll("[data-fkey]").forEach(inp => valori[inp.dataset.fkey] = (inp.value || "").trim());
+  const valori = leggiCampiStrutturati(struct);
   const stringa = formattaDatiSpecifici(tipo, valori);
   if (stringa) {
     preview.style.display = "block";
@@ -3583,10 +3635,7 @@ async function salvaPratica(id, isEdit, continua = false) {
 
   if (struct && struct.style.display !== "none") {
     // Schema strutturato: leggo i campi e genero la stringa formattata
-    datiSpecificiCampi = {};
-    struct.querySelectorAll("[data-fkey]").forEach(inp => {
-      datiSpecificiCampi[inp.dataset.fkey] = (inp.value || "").trim();
-    });
+    datiSpecificiCampi = leggiCampiStrutturati(struct);
     datiSpecifici = formattaDatiSpecifici(tipo, datiSpecificiCampi);
   } else if (sel && sel.style.display !== "none") {
     datiSpecifici = sel.value;
