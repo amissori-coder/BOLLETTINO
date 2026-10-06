@@ -4855,10 +4855,10 @@ PAGES["dati-fissi"] = function() {
     </div>
 
     <div class="tab-group">
-      <div class="tab-group-title">Cariche del Collegio</div>
+      <div class="tab-group-title">Cariche del Collegio <span class="text-muted" style="font-weight:400;text-transform:none;letter-spacing:0">(nell'ordine in cui vengono stampate nel bollettino)</span></div>
       <div class="section-tabs">
-        ${getSezioniReport().map(s => `
-          <div class="section-tab ${sezioneAttiva===s.key?'active':''}" onclick="cambiaTabDatiFissi('${s.key}')" title="${escapeHtml(s.titolo)}">${escapeHtml(getTitoloSezione(s.key))}</div>
+        ${getSezioniReport().map((s, i) => `
+          <div class="section-tab ${sezioneAttiva===s.key?'active':''}" onclick="cambiaTabDatiFissi('${s.key}')" title="${escapeHtml(s.titolo)}${s.attiva === false ? ' (esclusa dalla stampa)' : ''}"${s.attiva === false ? ' style="opacity:.55"' : ''}>${i + 1}. ${escapeHtml(getTitoloSezione(s.key))}</div>
         `).join('')}
       </div>
     </div>
@@ -4995,6 +4995,21 @@ function renderTabDatiFissi(tab) {
       <div class="card">
         <div class="flex-between mb-2" style="flex-wrap:wrap;gap:8px;">
           <h3 style="margin:0">${getTitoloSezione(tab)} <small class="text-muted" style="font-weight:400">(${listaFiltrata.length}${listaFiltrata.length !== lista.length ? '/' + lista.length : ''} voci)</small></h3>
+          ${(() => {
+            // Ordine di stampa: la stessa lista della tab "Ordine e Colori",
+            // ma spostabile da qui, dove si sta guardando la tabella.
+            const ordine = getSezioniReport();
+            const pos = ordine.findIndex(s => s.key === tab);
+            if (pos < 0) return '';
+            const sez = ordine[pos];
+            return `
+            <div class="flex gap-2" style="align-items:center;flex-wrap:wrap;font-size:12px;">
+              <span class="text-muted">Posizione in stampa: <strong>${pos + 1} di ${ordine.length}</strong>${sez.attiva === false ? ' <span style="color:var(--danger)">(esclusa dalla stampa)</span>' : ''}</span>
+              <button class="btn btn-secondary btn-sm" onclick="spostaSezioneReport('${tab}', -1)" title="Stampa questa tabella prima della precedente" ${pos === 0 ? 'disabled' : ''}>▲ Sposta su</button>
+              <button class="btn btn-secondary btn-sm" onclick="spostaSezioneReport('${tab}', 1)" title="Stampa questa tabella dopo la successiva" ${pos === ordine.length - 1 ? 'disabled' : ''}>▼ Sposta giù</button>
+              <a href="javascript:void(0)" onclick="cambiaTabDatiFissi('sezioni')" style="font-size:12px">Ordine e colori…</a>
+            </div>`;
+          })()}
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" onclick="aggiungiRigaDatiFissi('${tab}')">+ Aggiungi riga</button>
             <button class="btn btn-secondary btn-sm" id="dfAnnulla_${tab}" onclick="annullaBozzaDatiFissi('${tab}')" ${inBozza ? '' : 'disabled'}>Annulla modifiche</button>
@@ -5258,7 +5273,10 @@ function renderTabSezioniReport(cont) {
 async function salvaSezioniReport(lista, rirenderizza) {
   state.datiFissi.sezioniReport = lista;
   await dbPut("datiFissi", { key: "sezioniReport", value: lista });
-  if (rirenderizza) renderTabDatiFissi("sezioni");
+  // Si ridisegna tutta la pagina, non solo il contenuto della tab: l'ordine
+  // delle tab "Cariche del Collegio" segue quello di stampa e lo spostamento
+  // può partire dalla scheda di una sezione, non solo da "Ordine e Colori".
+  if (rirenderizza && state.page === "dati-fissi") PAGES["dati-fissi"]();
 }
 
 function spostaSezioneReport(key, delta) {
